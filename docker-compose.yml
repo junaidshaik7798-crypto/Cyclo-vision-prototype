@@ -1,0 +1,29 @@
+# ============================================================
+# CYCLO-VISION — Docker Compose (database & optional full stack)
+# ============================================================
+# The backend requires PostgreSQL. This compose file runs PostgreSQL
+# locally for development.
+#
+# Usage:
+#   docker compose up -d db
+#
+# When the DATABASE_URL is set accordingly, run the backend:
+#   uvicorn app.main:app --reload --port 8000   (from backend/)
+# ============================================================
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: cyclo_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: cyclo_vision
+      POSTGRES_USER: cyclo
+      POSTGRES_PASSWORD: cyclo_pass
+    ports:
+      - "5432:5432"
+    volumes:
+      - cyclo_pgdata:/var/lib/postgresql/data
+
+volumes:
+  cyclo_pgdata:

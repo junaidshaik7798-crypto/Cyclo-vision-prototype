@@ -1,0 +1,104 @@
+{
+  "generated_at": "2026-09-19T12:06:29+00:00",
+  "source": "C:\\Users\\SHAIKJ~1\\AppData\\Local\\Temp\\cyclo_selftest_ga00sfia\\raw",
+  "output": "C:\\Users\\SHAIKJ~1\\AppData\\Local\\Temp\\cyclo_selftest_ga00sfia\\labeled",
+  "input_size": 256,
+  "dry_run": false,
+  "per_class": {
+    "Cyclonic Storm": 5,
+    "Severe Cyclonic Storm": 5
+  },
+  "accepted": [
+    {
+      "file": "Cyclonic Storm\\fig_0.png",
+      "label": "Cyclonic Storm",
+      "panel_shape": [
+        200,
+        200,
+        3
+      ]
+    },
+    {
+      "file": "Cyclonic Storm\\fig_1.png",
+      "label": "Cyclonic Storm",
+      "panel_shape": [
+        200,
+        200,
+        3
+      ]
+    },
+    {
+      "file": "Cyclonic Storm\\fig_2.png",
+      "label": "Cyclonic Storm",
+      "panel_shape": [
+        200,
+        200,
+        3
+      ]
+    },
+    {
+      "file": "Cyclonic Storm\\fig_3.png",
+      "label": "Cyclonic Storm",
+      "panel_shape": [
+        200,
+        200,
+        3
+      ]
+    },
+    {
+      "file": "Cyclonic Storm\\fig_4.png",
+      "label": "Cyclonic Storm",
+      "panel_shape": [
+        200,
+        200,
+        3
+      ]
+    },
+    {
+      "file": "Severe Cyclonic Storm\\fig_0.png",
+      "label": "Severe Cyclonic Storm",
+      "panel_shape": [
+        200,
+        200,
+        3
+      ]
+    },
+    {
+      "file": "Severe Cyclonic Storm\\fig_1.png",
+      "label": "Severe Cyclonic Storm",
+      "panel_shape": [
+        200,
+        200,
+        3
+      ]
+    },
+    {
+      "file": "Severe Cyclonic Storm\\fig_2.png",
+      "label": "Severe Cyclonic Storm",
+      "panel_shape": [
+        200,
+        200,
+        3
+      ]
+    },
+    {
+      "file": "Severe Cyclonic Storm\\fig_3.png",
+      "label": "Severe Cyclonic Storm",
+      "panel_shape": [
+        200,
+        200,
+        3
+      ]
+    },
+    {
+      "file": "Severe Cyclonic Storm\\fig_4.png",
+      "label": "Severe Cyclonic Storm",
+      "panel_shape": [
+        200,
+        200,
+        3
+      ]
+    }
+  ],
+  "rejected": []
+}

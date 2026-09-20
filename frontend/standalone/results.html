@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>CYCLO-VISION — Analysis Results</title>
+<link rel="stylesheet" href="app.css" />
+</head>
+<body>
+<div class="aurora"><div class="a1"></div><div class="a2"></div></div>
+
+<nav class="navbar">
+  <div class="logo"><span class="orb"></span> CYCLO<span>-VISION</span></div>
+  <div class="pills">
+    <a class="pill link" href="index.html">&larr; New Analysis</a>
+    <div id="ml-pill" class="pill"><span class="dot"></span> ML: …</div>
+  </div>
+</nav>
+
+<main class="wrap wide">
+  <div id="mode-banner" class="banner hidden"></div>
+
+  <!-- ================= OUTPUT: IMAGE + VERDICT ================= -->
+  <section class="result-grid">
+    <div class="card">
+      <h2><span class="ic">&#128270;</span> Analysed Image</h2>
+      <div class="img-stage">
+        <img id="out-img" alt="analysed cyclone image" />
+        <div id="heat-layer" class="heat-layer hidden"></div>
+      </div>
+      <div class="img-tools">
+        <button id="heat-toggle" class="btn ghost" type="button">Show Heatmap</button>
+        <label class="chk"><input id="heat-blend" type="range" min="20" max="90" value="55" />
+          blend</label>
+      </div>
+      <div id="img-meta" class="muted small"></div>
+    </div>
+
+    <div class="card">
+      <h2><span class="ic">&#9878;</span> Verdict</h2>
+      <div id="verdict-class" class="verdict">—</div>
+      <div id="verdict-conf" class="conf-row"><span class="conf-bar"><span
+          id="conf-fill" class="conf-fill"></span></span><span id="conf-val">—</span></div>
+
+      <div class="metrics">
+        <div class="metric"><div class="v" id="m-wind">—</div><div class="l">Wind (knots)</div></div>
+        <div class="metric"><div class="v" id="m-pres">—</div><div class="l">Pressure (hPa)</div></div>
+        <div class="metric"><div class="v" id="m-cat">—</div><div class="l">IMD Category</div></div>
+        <div class="metric"><div class="v" id="m-risk">—</div><div class="l">Risk Level</div></div>
+      </div>
+
+      <div id="mode-line" class="muted small"></div>
+      <div id="ref-line" class="muted small"></div>
+      <div id="persist-line" class="muted small warn hidden"></div>
+    </div>
+  </section>
+
+  <!-- ================= OUTPUT: EXPLAINABILITY ================= -->
+  <section class="card full">
+    <h2><span class="ic">&#128300;</span> Explainability</h2>
+    <div id="expl-note" class="muted"></div>
+    <div id="risk-factors" class="rf-grid"></div>
+  </section>
+
+  <!-- ================= OUTPUT: TRACK ================= -->
+  <section class="card full">
+    <h2><span class="ic">&#127788;</span> Forecast Track &amp; Uncertainty Cone</h2>
+    <div class="track-wrap">
+      <div class="map" id="track-map">
+        <svg id="track-svg" viewBox="0 0 100 70" preserveAspectRatio="xMidYMid meet">
+          <g id="svg-lats"></g><g id="svg-track"></g>
+        </svg>
+      </div>
+      <table class="tbl" id="track-tbl">
+        <thead><tr><th>Time</th><th>Lat</th><th>Lon</th><th>Cone (km)</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ================= OUTPUT: ACCURACY / TRUST ================= -->
+  <section class="card full">
+    <h2><span class="ic">&#127919;</span> How Accurate Is This?</h2>
+    <p class="muted">Single-frame infrared intensity estimation has a published noise floor of
+      roughly <strong>10&ndash;13 kt RMSE</strong> even for state-of-the-art models — two storms
+      can look identical in IR yet differ by 20 kt because intensity depends on the inner core
+      below the cloud tops, which IR cannot see. Treat these outputs as research estimates.</p>
+    <div class="acc-grid">
+      <div class="metric"><div class="v" id="a-mode">—</div><div class="l">Inference mode</div></div>
+      <div class="metric"><div class="v" id="a-conf">—</div><div class="l">Model confidence</div></div>
+      <div class="metric"><div class="v" id="a-band">—</div><div class="l">Expected band</div></div>
+      <div class="metric"><div class="v" id="a-cal">—</div><div class="l">Calibration</div></div>
+    </div>
+  </section>
+</main>
+
+<footer>CYCLO-VISION &middot; research prototype &middot; not for operational use</footer>
+
+<script src="app.js"></script>
+<script>
+initResultsPage();
+</script>
+</body>
+</html>

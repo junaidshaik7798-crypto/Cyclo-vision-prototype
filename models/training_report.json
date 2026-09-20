@@ -1,0 +1,176 @@
+{
+  "config": {
+    "data": "C:\\Users\\SHAIKJ~1\\AppData\\Local\\Temp\\cyclo_selftest_ga00sfia\\labeled",
+    "out": "C:\\Users\\SHAIKJ~1\\AppData\\Local\\Temp\\cyclo_selftest_ga00sfia\\models\\cyclo_cnn.pt",
+    "backbone": "cnn",
+    "pretrained": "False",
+    "epochs": "3",
+    "batch_size": "4",
+    "lr": "0.001",
+    "weight_decay": "0.0001",
+    "val_split": "0.3",
+    "size": "256",
+    "device": "cpu",
+    "seed": "42",
+    "min_per_class": "3"
+  },
+  "class_counts": {
+    "Cyclonic Storm": 5,
+    "Severe Cyclonic Storm": 5
+  },
+  "train_tiles": 6,
+  "val_tiles": 4,
+  "backbone_description": "CycloCNN (in-repo, random init)",
+  "parameters": 391175,
+  "history": [
+    {
+      "epoch": 1,
+      "train_loss": 1.54643,
+      "train_acc": 0.33333,
+      "val_loss": 1.90361,
+      "val_acc": 0.5,
+      "val_macro_f1": 0.3333,
+      "lr": 0.00075,
+      "seconds": 0.44
+    },
+    {
+      "epoch": 2,
+      "train_loss": 1.17013,
+      "train_acc": 0.66667,
+      "val_loss": 1.91904,
+      "val_acc": 0.5,
+      "val_macro_f1": 0.3333,
+      "lr": 0.00025,
+      "seconds": 0.36
+    },
+    {
+      "epoch": 3,
+      "train_loss": 0.62339,
+      "train_acc": 0.83333,
+      "val_loss": 1.96115,
+      "val_acc": 0.5,
+      "val_macro_f1": 0.3333,
+      "lr": 0.0,
+      "seconds": 0.39
+    }
+  ],
+  "best": {
+    "epoch": 1,
+    "val_accuracy": 0.5,
+    "val_macro_f1": 0.3333,
+    "per_class": {
+      "No Cyclone": {
+        "support": 0,
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0
+      },
+      "Depression": {
+        "support": 0,
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0
+      },
+      "Deep Depression": {
+        "support": 0,
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0
+      },
+      "Cyclonic Storm": {
+        "support": 2,
+        "precision": 0.5,
+        "recall": 1.0,
+        "f1": 0.6667
+      },
+      "Severe Cyclonic Storm": {
+        "support": 2,
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0
+      },
+      "Very Severe Cyclonic Storm": {
+        "support": 0,
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0
+      },
+      "Extremely Severe Cyclonic Storm": {
+        "support": 0,
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0
+      }
+    },
+    "confusion_matrix": [
+      [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        2,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        2,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    ],
+    "classes_present": [
+      "Cyclonic Storm",
+      "Severe Cyclonic Storm"
+    ]
+  },
+  "total_seconds": 1.19
+}

@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>CYCLO-VISION — Cyclone Analysis Input</title>
+<link rel="stylesheet" href="app.css" />
+</head>
+<body>
+<div class="aurora"><div class="a1"></div><div class="a2"></div></div>
+
+<nav class="navbar">
+  <div class="logo"><span class="orb"></span> CYCLO<span>-VISION</span></div>
+  <div class="pills">
+    <div id="ml-pill" class="pill"><span class="dot"></span> ML: …</div>
+    <div id="db-pill" class="pill green"><span class="dot"></span> DB: …</div>
+    <div id="ds-pill" class="pill indigo"><span class="dot"></span> IBTrACS: …</div>
+  </div>
+</nav>
+
+<header class="hero">
+  <h1>AI-Powered Cyclone Detection &amp; Intensity Estimation</h1>
+  <p>Upload a satellite image or pick a bundled sample. The model classifies the storm on the
+     IMD scale, estimates wind &amp; pressure, generates a 48-h forecast track with an uncertainty
+     cone, and returns an explainability heatmap — all shown on a separate results page.</p>
+</header>
+
+<main class="wrap">
+  <!-- ================= INPUT SECTION ================= -->
+  <section class="card">
+    <h2><span class="ic">1</span> Choose an Input Image</h2>
+
+    <div class="subhead">Bundled demo samples</div>
+    <div id="samples" class="sample-grid">
+      <div class="muted">Loading samples…</div>
+    </div>
+
+    <div class="subhead">Or upload your own</div>
+    <div id="drop" class="drop" tabindex="0">
+      <input id="file" type="file" accept=".jpg,.jpeg,.png,.tif,.tiff" />
+      <div class="drop-inner">
+        <div class="drop-icon">&#8682;</div>
+        <div><strong>Click to browse</strong> or drag &amp; drop a satellite image here</div>
+        <div class="muted small">JPG / PNG / TIFF &middot; max 10 MB</div>
+      </div>
+    </div>
+    <div id="preview-wrap" class="preview-wrap hidden">
+      <img id="preview" alt="selected image preview" />
+      <div id="preview-name" class="muted small"></div>
+    </div>
+  </section>
+
+  <!-- ================= OPTIONS SECTION ================= -->
+  <section class="card">
+    <h2><span class="ic">2</span> Analysis Options</h2>
+
+    <label class="field-label" for="region">Storm centre — latitude, longitude (optional)</label>
+    <div class="region-row">
+      <input id="region" type="text" placeholder="e.g. 17.5, 88.3" />
+      <button id="region-clear" class="btn ghost" type="button">Clear</button>
+    </div>
+    <div class="muted small">If omitted, a centre is derived from the detected class
+      (Bay of Bengal default).</div>
+
+    <div id="input-summary" class="summary hidden"></div>
+
+    <button id="analyze" class="btn primary big" disabled>
+      Run Cyclone Analysis &rarr;
+    </button>
+    <div id="status" class="status hidden"></div>
+    <div id="error" class="error-box hidden"></div>
+  </section>
+
+  <!-- ================= DATASETS SECTION ================= -->
+  <section class="card full">
+    <h2><span class="ic">3</span> Datasets &amp; System</h2>
+    <div class="tabs">
+      <button class="tab active" data-tab="sources">Data Sources</button>
+      <button class="tab" data-tab="live">Live IBTrACS Storms</button>
+      <button class="tab" data-tab="ref">Reference Dataset</button>
+    </div>
+    <div id="tab-sources" class="tabpane"><div class="muted">Loading…</div></div>
+    <div id="tab-live" class="tabpane hidden"><div class="muted">Loading…</div></div>
+    <div id="tab-ref" class="tabpane hidden"><div class="muted">Loading…</div></div>
+  </section>
+</main>
+
+<footer>CYCLO-VISION &middot; research prototype &middot; not for operational use</footer>
+
+<script src="app.js"></script>
+<script>
+initInputPage();
+initDatasetsSection();
+</script>
+</body>
+</html>
