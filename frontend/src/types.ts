@@ -104,7 +104,6 @@ export interface ReferenceDatasetResponse {
     updated: string;
   };
 }
-
 // ---------------------------------------------------------------------------
 // Live IBTrACS (real NOAA best-track archive)
 // ---------------------------------------------------------------------------
@@ -131,17 +130,108 @@ export interface IBTrACSStorm {
 export interface IBTrACSStormsResponse {
   source: string;
   storms: IBTrACSStorm[];
+  /** "ready" | "warming" | "degraded" -- see IBTrACSStatus. */
+  state?: string;
+  records?: number;
 }
 
 export interface IBTrACSStatus {
   source: string;
+  /**
+   * "ready"    -> the real observed record is loaded,
+   * "warming"  -> the download/parse is still running (show what we have),
+   * "degraded" -> no local copy yet, the curated anchors are being served.
+   */
+  state: string;
+  loading: boolean;
   records: number;
   year_range: string;
   cache_file: string;
   cache_present: boolean;
   cache_size_mb: number;
+  cache_age_hours: number | null;
+  cache_fresh: boolean;
+  cache_ttl_hours: number;
+  sidecar_file?: string;
+  sidecar_present?: boolean;
   downloaded_at: string | null;
   last_error: string | null;
   url: string;
   license: string;
+  records_by_basin?: Record<string, number>;
+  records_by_category?: Record<string, number>;
+  strongest_wind_knots?: number | null;
+  lowest_pressure_hpa?: number | null;
+  attribute_count?: number;
+}
+
+/** One row of the IMD intensity scale derived from the shared wind bands. */
+export interface WindBand {
+  class_index: number;
+  min_wind_knots: number;
+  category: string;
+}
+
+/** Field-level documentation of the live dataset payload. */
+export interface DatasetAttribute {
+  field: string;
+  label: string;
+  source: string;
+  description: string;
+}
+
+export interface IBTrACSSummary {
+  state: string;
+  loading: boolean;
+  source: string;
+  records: number;
+  named_records: number;
+  records_with_pressure: number;
+  year_range: string;
+  first_year: number | null;
+  last_year: number | null;
+  strongest_wind_knots: number | null;
+  lowest_pressure_hpa: number | null;
+  mean_peak_wind_knots: number | null;
+  basins: Record<string, number>;
+  categories: Record<string, number>;
+  records_by_basin: Record<string, number>;
+  records_by_category: Record<string, number>;
+  attribute_count: number;
+  generated_at: string;
+}
+
+/** Complete observed record: every storm, every attribute, plus context. */
+export interface IBTrACSDatasetResponse {
+  state: string;
+  loading: boolean;
+  source: string;
+  total: number;
+  matched: number;
+  returned: number;
+  offset: number;
+  sort: string;
+  sort_orders: string[];
+  storms: IBTrACSStorm[];
+  summary: IBTrACSSummary;
+  scale: WindBand[];
+  attributes: DatasetAttribute[];
+}
+
+/** Single-request payload that hydrates every dataset panel on the page. */
+export interface DatasetsOverview {
+  generated_at: string;
+  errors: Record<string, string>;
+  samples: DemoSample[];
+  sources: DataSource[];
+  reference: ReferenceDatasetResponse;
+  ibtracs: {
+    status: IBTrACSStatus | null;
+    summary: IBTrACSSummary | null;
+    scale: WindBand[];
+    attributes: DatasetAttribute[];
+    dataset: IBTrACSDatasetResponse | null;
+    recent?: IBTrACSStorm[];
+    intense?: IBTrACSStorm[];
+  };
 }

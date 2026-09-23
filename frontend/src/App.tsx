@@ -1,12 +1,15 @@
-  import { useCallback, useEffect, useRef, useState } from "react";
+
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   getHealth,
+  getDatasetsOverview,
   getDataSources,
   getDemoSamples,
   getReferenceDataset,
   getIBTrACSStatus,
   getIBTrACSRecent,
   getIBTrACSIntense,
+  getIBTrACSDataset,
   analyzeDemo,
   uploadImage,
 } from "./api";
@@ -17,25 +20,195 @@ import {
   SatelliteDish,
   UploadCloud,
   CloudLightning,
+  RefreshCw,
+  Database,
+  Clock3,
+  AlertTriangle,
+  Search,
+  Download,
+  Info,
+  Loader2,
 } from "lucide-react";
 import type {
   AnalysisResult,
   DataSource,
+  DatasetAttribute,
+  DatasetsOverview,
   DemoSample,
   HealthStatus,
+  IBTrACSDatasetResponse,
+  IBTrACSSummary,
   IBTrACSStatus,
   IBTrACSStorm,
   ReferenceDatasetResponse,
+  WindBand,
 } from "./types";
 
 type TabKey = "analyze" | "live" | "reference" | "sources";
 
+type DatasetKey = "samples" | "sources" | "reference" | "ibtracs";
+type DatasetErrors = Partial<Record<DatasetKey, string>>;
+
+// Dataset auto-retry policy: transient failures (backend still booting, a slow
+// IBTrACS warm-up, a dropped packet) are retried with a linear backoff, capped
+// so a genuinely offline backend does not spin forever. Recovery is automatic:
+// the user never has to press a Retry button.
+const MAX_AUTO_RETRIES = 5;
+const AUTO_RETRY_DELAY_MS = 4000;
+const HEALTH_POLL_MS = 30000;
+// While the archive is still being read/downloaded by the backend the panels
+// already show the local copy, so a short poll is enough to pick up the final
+// record. Bounded, so a permanently offline backend stops polling.
+const WARM_POLL_MS = 3000;
+const MAX_WARM_POLLS = 40;
+
+function formatTimestamp(value: string | number | Date | null | undefined): string {
+  if (!value) return "Not available";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString();
+}
+
+function formatEstimate(value: number, suffix: string, decimals = 1): string {
+  return Number.isFinite(value) ? `${value.toFixed(decimals)} ${suffix}` : "--";
+}
+
+/** "ready" | "warming" | "degraded" -> label shown on the status chips. */
+function datasetStateLabel(state: string | undefined): string {
+  switch (state) {
+    case "ready":
+      return "Loaded";
+    case "warming":
+      return "Loading archive…";
+    case "degraded":
+      return "Bundled records";
+    default:
+      return "Starting";
+  }
+}
+
+const SORT_LABELS: Record<string, string> = {
+  recent: "Newest first",
+  oldest: "Oldest first",
+  intense: "Strongest wind",
+  weakest: "Weakest wind",
+  name: "Storm name (A-Z)",
+  pressure: "Lowest pressure",
+};
+
+/** Summary tiles rendered for the live dataset (one per reported statistic). */
+const SUMMARY_TILES: { key: string; label: string }[] = [
+  { key: "records", label: "Observed storms" },
+  { key: "year_range", label: "Year range" },
+  { key: "named_records", label: "Named storms" },
+  { key: "records_with_pressure", label: "Records with pressure" },
+  { key: "strongest_wind_knots", label: "Strongest wind (kt)" },
+  { key: "lowest_pressure_hpa", label: "Lowest pressure (hPa)" },
+  { key: "mean_peak_wind_knots", label: "Mean peak wind (kt)" },
+  { key: "attribute_count", label: "Dataset attributes" },
+];
+
+/**
+ * Field documentation used until the API payload (which carries the
+ * authoritative list, including its source column) arrives. Keeping a copy
+ * here means the panel can always explain every column it renders.
+ */
+const FALLBACK_ATTRIBUTES: DatasetAttribute[] = [
+  { field: "sid", label: "Storm ID (SID)", source: "IBTrACS SID", description: "Unique storm identifier." },
+  { field: "name", label: "Storm name", source: "IBTrACS NAME", description: "Official name, or UNNAMED." },
+  { field: "year", label: "Season (year)", source: "IBTrACS SEASON", description: "Season of the storm." },
+  { field: "basin", label: "Basin", source: "IBTrACS BASIN", description: "Reporting basin of the track." },
+  { field: "category", label: "IMD category", source: "derived from USA_WIND", description: "IMD band of the peak wind." },
+  { field: "max_wind_knots", label: "Peak wind", source: "IBTrACS USA_WIND", description: "Peak 1-minute sustained wind (kt)." },
+  { field: "min_pressure_hpa", label: "Minimum pressure", source: "IBTrACS USA_PRES", description: "Lowest central pressure (hPa)." },
+  { field: "genesis_lat", label: "Genesis latitude", source: "IBTrACS LAT", description: "First valid track point (deg N)." },
+  { field: "genesis_lon", label: "Genesis longitude", source: "IBTrACS LON", description: "First valid track point (deg E)." },
+  { field: "landfall_lat", label: "Final latitude", source: "IBTrACS LAT", description: "Last valid track point (deg N)." },
+  { field: "landfall_lon", label: "Final longitude", source: "IBTrACS LON", description: "Last valid track point (deg E)." },
+  { field: "track_direction_deg", label: "Track bearing", source: "derived", description: "Great-circle bearing (deg)." },
+  { field: "forward_speed_knots", label: "Forward speed", source: "derived", description: "Implied translation speed (kt)." },
+  { field: "intensity_index", label: "Intensity index", source: "derived from USA_WIND", description: "Engine class index 0-6." },
+  { field: "notes", label: "Notes", source: "generated", description: "Provenance note for the record." },
+];
+
+/** Render one dataset attribute exactly as documented by the backend. */
+function formatAttribute(field: string, storm: IBTrACSStorm): string {
+  const value = (storm as unknown as Record<string, unknown>)[field];
+  if (value === null || value === undefined || value === "") return "n/a";
+  if (typeof value === "number") {
+    if (field.endsWith("_lat") || field.endsWith("_lon")) return value.toFixed(2);
+    if (field.endsWith("_knots") || field.endsWith("_deg")) return value.toFixed(1);
+    return String(value);
+  }
+  return String(value);
+}
+
+/** Trigger a client-side download of a text payload (CSV/JSON export). */
+function downloadTextFile(filename: string, text: string, mime: string): void {
+  const blob = new Blob([text], { type: `${mime};charset=utf-8` });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+function stormsToCsv(storms: IBTrACSStorm[]): string {
+  if (storms.length === 0) return "";
+  const columns = Object.keys(storms[0]) as (keyof IBTrACSStorm)[];
+  const escape = (value: unknown) => {
+    const text = value === null || value === undefined ? "" : String(value);
+    return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+  };
+  const rows = storms.map((storm) =>
+    columns.map((column) => escape(storm[column])).join(",")
+  );
+  return [columns.join(","), ...rows].join("\n");
+}
+
+/** One summary tile from either payload (`summary` wins over `status`). */
+function formatSummaryValue(
+  key: string,
+  summary: IBTrACSSummary | null,
+  status: IBTrACSStatus | null
+): string {
+  const source: Record<string, unknown> = {
+    ...(status ?? {}),
+    ...(summary ?? {}),
+  } as Record<string, unknown>;
+  const value = source[key];
+  if (value === null || value === undefined || value === "") {
+    if (key === "records" && status?.records) return String(status.records);
+    return "—";
+  }
+  if (typeof value === "number") {
+    return Number.isInteger(value) ? String(value) : value.toFixed(1);
+  }
+  return String(value);
+}
+
+/** "NI: 273 · WP: 69" for the basin/category breakdowns. */
+function formatCounts(
+  primary: Record<string, number> | undefined,
+  fallback: Record<string, number> | undefined
+): string {
+  const counts = primary ?? fallback;
+  if (!counts) return "";
+  return Object.entries(counts)
+    .map(([label, count]) => `${label}: ${count}`)
+    .join(" · ");
+}
+
 export default function App() {
   const [health, setHealth] = useState<HealthStatus | null>(null);
+  const [overview, setOverview] = useState<DatasetsOverview | null>(null);
   const [samples, setSamples] = useState<DemoSample[]>([]);
   const [sources, setSources] = useState<DataSource[]>([]);
   const [refData, setRefData] = useState<ReferenceDatasetResponse | null>(null);
   const [ibtracsStatus, setIbtracsStatus] = useState<IBTrACSStatus | null>(null);
+  const [ibtracsDataset, setIbtracsDataset] = useState<IBTrACSDatasetResponse | null>(null);
   const [ibtracsRecent, setIbtracsRecent] = useState<IBTrACSStorm[]>([]);
   const [ibtracsIntense, setIbtracsIntense] = useState<IBTrACSStorm[]>([]);
   const [selectedSample, setSelectedSample] = useState<string | null>(null);
@@ -44,51 +217,220 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<TabKey>("analyze");
+  const [datasetErrors, setDatasetErrors] = useState<DatasetErrors>({});
+  const [datasetNotices, setDatasetNotices] = useState<Record<string, string>>({});
+  const [datasetsFetchedAt, setDatasetsFetchedAt] = useState<Date | null>(null);
+  const [refreshingDatasets, setRefreshingDatasets] = useState(false);
+  const [showDatasetDetails, setShowDatasetDetails] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // Resilience bookkeeping: a transient backend hiccup must never leave a
+  // dataset panel permanently empty, so failures are retried automatically.
+  const inFlightRef = useRef(false);
+  const retryAttemptRef = useRef(0);
+  const warmPollRef = useRef(0);
+  const datasetErrorsRef = useRef<DatasetErrors>({});
 
-  const loadHealth = useCallback(async () => {
+  useEffect(() => {
+    datasetErrorsRef.current = datasetErrors;
+  }, [datasetErrors]);
+
+  const loadHealth = useCallback(async (): Promise<boolean> => {
     try {
       const h = await getHealth();
       setHealth(h);
+      return true;
     } catch {
       setHealth(null);
+      return false;
     }
   }, []);
 
+  /** The live-record state reported by the backend. */
+  const ibtracsState = ibtracsStatus?.state ?? ibtracsDataset?.state ?? "cold";
+  const ibtracsWarming = ibtracsState === "warming";
+
+  // The complete observed record, with the one-shot overview payload as a
+  // fallback so the panel renders even if only one of the two requests landed.
+  const liveDataset = ibtracsDataset ?? overview?.ibtracs?.dataset ?? null;
+  const liveSummary: IBTrACSSummary | null =
+    liveDataset?.summary ?? overview?.ibtracs?.summary ?? null;
+  const liveScale: WindBand[] = liveDataset?.scale ?? overview?.ibtracs?.scale ?? [];
+  const liveAttributes: DatasetAttribute[] =
+    liveDataset?.attributes ?? overview?.ibtracs?.attributes ?? [];
+
+  /**
+   * Pull every dataset. One request (`/datasets/overview`) fills the whole
+   * dashboard; the individual endpoints are only used when that call itself
+   * fails, so a single slow source can no longer blank the other panels.
+   */
   const loadData = useCallback(async () => {
+    // Guard against overlapping runs (manual refresh + auto-retry + health
+    // recovery probe firing together would duplicate every request).
+    if (inFlightRef.current) return;
+    inFlightRef.current = true;
+    setRefreshingDatasets(true);
+    const errors: DatasetErrors = {};
+    let loaded = false;
     try {
-      const [s, ds, rd] = await Promise.all([
-        getDemoSamples(),
-        getDataSources(),
-        getReferenceDataset(),
-      ]);
-      setSamples(s.samples ?? []);
-      setSources(ds.sources ?? []);
-      setRefData(rd);
-    } catch {
-      // Graceful on error
-    }
-    // Live IBTrACS is loaded separately so a slow/failed download never
-    // blocks the rest of the dashboard.
-    try {
-      const [st, rec, inten] = await Promise.all([
-        getIBTrACSStatus(),
-        getIBTrACSRecent(15),
-        getIBTrACSIntense(15),
-      ]);
-      setIbtracsStatus(st);
-      setIbtracsRecent(rec.storms ?? []);
-      setIbtracsIntense(inten.storms ?? []);
-    } catch {
-      // Live dataset unavailable; the Live tab shows a notice.
+      try {
+        const data = await getDatasetsOverview(10, 10);
+        setOverview(data);
+        setSamples(data.samples ?? []);
+        setSources(data.sources ?? []);
+        setRefData(data.reference ?? null);
+        setIbtracsStatus(data.ibtracs?.status ?? null);
+        setIbtracsDataset(data.ibtracs?.dataset ?? null);
+        if (data.ibtracs?.recent) setIbtracsRecent(data.ibtracs.recent);
+        if (data.ibtracs?.intense) setIbtracsIntense(data.ibtracs.intense);
+        setDatasetNotices(data.errors ?? {});
+        loaded = true;
+      } catch {
+        // Fallback path: the individual endpoints, each degrading on its own.
+        const [sampleResult, sourceResult, referenceResult, statusResult, datasetResult] =
+          await Promise.allSettled([
+            getDemoSamples(),
+            getDataSources(),
+            getReferenceDataset(),
+            getIBTrACSStatus(),
+            getIBTrACSDataset(),
+          ]);
+
+        if (sampleResult.status === "fulfilled") {
+          setSamples(sampleResult.value.samples ?? []);
+          loaded = true;
+        } else {
+          errors.samples = sampleResult.reason instanceof Error
+            ? sampleResult.reason.message
+            : "Could not load demo samples";
+        }
+
+        if (sourceResult.status === "fulfilled") {
+          setSources(sourceResult.value.sources ?? []);
+          loaded = true;
+        } else {
+          errors.sources = sourceResult.reason instanceof Error
+            ? sourceResult.reason.message
+            : "Could not load data sources";
+        }
+
+        if (referenceResult.status === "fulfilled") {
+          setRefData(referenceResult.value);
+          loaded = true;
+        } else {
+          errors.reference = referenceResult.reason instanceof Error
+            ? referenceResult.reason.message
+            : "Could not load reference data";
+        }
+
+        if (statusResult.status === "fulfilled") {
+          setIbtracsStatus(statusResult.value);
+          loaded = true;
+        } else {
+          errors.ibtracs = statusResult.reason instanceof Error
+            ? statusResult.reason.message
+            : "Could not load IBTrACS status";
+        }
+
+        if (datasetResult.status === "fulfilled") {
+          setIbtracsDataset(datasetResult.value);
+          loaded = true;
+        } else if (!errors.ibtracs) {
+          errors.ibtracs = datasetResult.reason instanceof Error
+            ? datasetResult.reason.message
+            : "Could not load the observed record";
+        }
+
+        if (statusResult.status === "fulfilled") {
+          const [recentResult, intenseResult] = await Promise.allSettled([
+            getIBTrACSRecent(10),
+            getIBTrACSIntense(10),
+          ]);
+          if (recentResult.status === "fulfilled") {
+            setIbtracsRecent(recentResult.value.storms ?? []);
+          }
+          if (intenseResult.status === "fulfilled") {
+            setIbtracsIntense(intenseResult.value.storms ?? []);
+          }
+        }
+      }
+
+      setDatasetErrors(errors);
+      // Only claim a fetch time when at least one dataset actually arrived,
+      // otherwise the control strip would read "Fetched ..." over empty panels.
+      if (loaded) setDatasetsFetchedAt(new Date());
+      if (Object.keys(errors).length === 0) retryAttemptRef.current = 0;
+    } finally {
+      inFlightRef.current = false;
+      setRefreshingDatasets(false);
     }
   }, []);
+
+  /**
+   * Cheap re-read of the live record only: used while the backend is still
+   * warming the archive and by the recovery probe. It never reports an error
+   * to the user -- the panels keep showing the data they already have.
+   */
+  const refreshLiveRecord = useCallback(async () => {
+    if (inFlightRef.current) return;
+    inFlightRef.current = true;
+    try {
+      const [dataset, status] = await Promise.allSettled([
+        getIBTrACSDataset(),
+        getIBTrACSStatus(),
+      ]);
+      if (dataset.status === "fulfilled") setIbtracsDataset(dataset.value);
+      if (status.status === "fulfilled") setIbtracsStatus(status.value);
+      if (dataset.status === "fulfilled" || status.status === "fulfilled") {
+        setDatasetsFetchedAt(new Date());
+      }
+    } finally {
+      inFlightRef.current = false;
+    }
+  }, []);
+
+  // Automatic retry with linear backoff. The counter is reset by a fully
+  // successful fetch (above) or by the health recovery probe (below), so an
+  // outage simply keeps the automatic recovery loop running.
+  useEffect(() => {
+    if (Object.keys(datasetErrors).length === 0) {
+      retryAttemptRef.current = 0;
+      return;
+    }
+    if (retryAttemptRef.current >= MAX_AUTO_RETRIES) return;
+    const timer = window.setTimeout(() => {
+      retryAttemptRef.current += 1;
+      loadData();
+    }, AUTO_RETRY_DELAY_MS * (retryAttemptRef.current + 1));
+    return () => window.clearTimeout(timer);
+  }, [datasetErrors, loadData]);
+
+  // While the archive is warming, poll briefly for the final record. The
+  // panels already render the local copy, so this is silent by design.
+  useEffect(() => {
+    if (!ibtracsWarming || warmPollRef.current >= MAX_WARM_POLLS) return;
+    const timer = window.setTimeout(() => {
+      warmPollRef.current += 1;
+      refreshLiveRecord();
+    }, WARM_POLL_MS);
+    return () => window.clearTimeout(timer);
+  }, [ibtracsWarming, ibtracsDataset, refreshLiveRecord]);
 
   useEffect(() => {
     loadHealth();
     loadData();
-    const interval = setInterval(loadHealth, 30000);
-    return () => clearInterval(interval);
+    // The health poll doubles as a recovery probe: when the API comes back
+    // after an outage, the datasets are fetched again immediately instead of
+    // waiting for the user to notice.
+    const interval = window.setInterval(async () => {
+      const healthy = await loadHealth();
+      if (!healthy) return;
+      if (Object.keys(datasetErrorsRef.current).length > 0) {
+        retryAttemptRef.current = 0;
+        warmPollRef.current = 0;
+        loadData();
+      }
+    }, HEALTH_POLL_MS);
+    return () => window.clearInterval(interval);
   }, [loadHealth, loadData]);
 
   const runAnalysis = useCallback(
@@ -180,6 +522,7 @@ export default function App() {
 
       <div className="container">
         <header className="hero">
+          <div className="hero-kicker"><span className="live-dot" /> OPERATIONS DATA DESK</div>
           <h1>Cyclone Intelligence Dashboard</h1>
           <p>
             Upload a satellite image or pick a bundled storm sample — the
@@ -188,6 +531,60 @@ export default function App() {
             forecast track with an uncertainty cone.
           </p>
         </header>
+        <section className="dashboard-strip" aria-label="Dataset status">
+          <div className="strip-title"><Database size={17} /> Dataset control room</div>
+          <div className="strip-items">
+            <span className="dataset-state">Samples: {samples.length}</span>
+            <span className="dataset-state">Reference events: {refData?.dataset.length ?? 0}</span>
+            <span className="dataset-state">
+              IBTrACS records: {ibtracsStatus?.records ?? ibtracsDataset?.total ?? 0}
+            </span>
+            <span className="dataset-state">Sources: {sources.length}</span>
+            <span className={`dataset-state ${ibtracsWarming ? "busy" : ibtracsState === "degraded" ? "warn" : ""}`}>
+              {datasetStateLabel(ibtracsState)}
+            </span>
+          </div>
+          <div className="strip-time"><Clock3 size={14} /> Fetched {formatTimestamp(datasetsFetchedAt)}</div>
+          <button className="icon-button" onClick={loadData} disabled={refreshingDatasets} title="Refresh all datasets" aria-label="Refresh all datasets">
+            <RefreshCw size={16} className={refreshingDatasets ? "spin-icon" : ""} />
+          </button>
+        </section>
+        {/* Informational only: the panels below always render whatever arrived,
+            and the client keeps retrying in the background by itself. */}
+        {(ibtracsWarming || ibtracsState === "degraded" || Object.keys(datasetNotices).length > 0) && (
+          <div className={`dataset-alert ${ibtracsState === "degraded" ? "" : "info"}`}>
+            {ibtracsWarming ? (
+              <Loader2 size={17} className="spin-icon" />
+            ) : ibtracsState === "degraded" ? (
+              <AlertTriangle size={17} />
+            ) : (
+              <Info size={17} />
+            )}
+            <span>
+              {ibtracsWarming
+                ? "Reading the live NOAA archive — the panels below already show every record that is available locally and update automatically."
+                : ibtracsState === "degraded"
+                  ? "Live archive unreachable right now: the bundled curated records are shown and the app keeps retrying quietly in the background."
+                  : "Some datasets reported a recoverable issue; every panel below still shows the data it has."}
+              {Object.keys(datasetNotices).length > 0 && (
+                <button
+                  type="button"
+                  className="link-button"
+                  onClick={() => setShowDatasetDetails((v) => !v)}
+                >
+                  {showDatasetDetails ? "Hide details" : "Show details"}
+                </button>
+              )}
+              {showDatasetDetails && (
+                <small className="dataset-error-list">
+                  {Object.entries({ ...datasetNotices, ...datasetErrors })
+                    .map(([key, message]) => `${key}: ${message}`)
+                    .join(" | ")}
+                </small>
+              )}
+            </span>
+          </div>
+        )}
         <div className="tabs">
           <button
             className={`tab-btn ${tab === "analyze" ? "active" : ""}`}
@@ -320,16 +717,27 @@ export default function App() {
           </div>
         )}
 
+        {/* Every tab renders unconditionally: a panel shows the data it has
+            (or an explicit empty state) instead of disappearing when a
+            request is still in flight. */}
         {tab === "live" && (
           <LivePanel
             status={ibtracsStatus}
+            summary={liveSummary}
+            dataset={liveDataset}
+            scale={liveScale}
+            attributes={liveAttributes}
             recent={ibtracsRecent}
             intense={ibtracsIntense}
+            fetchedAt={datasetsFetchedAt}
+            stale={Boolean(datasetErrors.ibtracs)}
           />
         )}
-        {tab === "reference" && refData && <ReferencePanel data={refData} />}
-        {tab === "sources" && sources.length > 0 && (
-          <SourcesPanel sources={sources} />
+        {tab === "reference" && (
+          <ReferencePanel data={refData} fetchedAt={datasetsFetchedAt} />
+        )}
+        {tab === "sources" && (
+          <SourcesPanel sources={sources} fetchedAt={datasetsFetchedAt} />
         )}
       </div>
     </div>
@@ -389,14 +797,20 @@ function ResultPanel({
         </div>
         <div className="metric-box">
           <div className="label">Wind Speed</div>
-          <div className="value">{result.estimated_wind_speed_knots} kt</div>
+          <div className="value">
+            {formatEstimate(result.estimated_wind_speed_knots, "kt")}
+          </div>
           <div className="sub">
-            ≈ {(result.estimated_wind_speed_knots * 1.852).toFixed(0)} km/h
+            {Number.isFinite(result.estimated_wind_speed_knots)
+              ? `≈ ${(result.estimated_wind_speed_knots * 1.852).toFixed(0)} km/h`
+              : "Estimate unavailable"}
           </div>
         </div>
         <div className="metric-box">
           <div className="label">Pressure</div>
-          <div className="value">{result.estimated_pressure_hpa} hPa</div>
+          <div className="value">
+            {formatEstimate(result.estimated_pressure_hpa, "hPa")}
+          </div>
         </div>
       </div>
 
@@ -547,39 +961,118 @@ function TrackMap({
 
 function LivePanel({
   status,
+  summary,
+  dataset,
+  scale,
+  attributes,
   recent,
   intense,
+  fetchedAt,
+  stale,
 }: {
   status: IBTrACSStatus | null;
+  summary: IBTrACSSummary | null;
+  dataset: IBTrACSDatasetResponse | null;
+  scale: WindBand[];
+  attributes: DatasetAttribute[];
   recent: IBTrACSStorm[];
   intense: IBTrACSStorm[];
+  fetchedAt: Date | null;
+  stale: boolean;
 }) {
-  if (!status) {
+  const [search, setSearch] = useState("");
+  const [sort, setSort] = useState("recent");
+  const [basin, setBasin] = useState("all");
+  const [minWind, setMinWind] = useState("0");
+  const [showAll, setShowAll] = useState(true);
+
+  const storms = dataset?.storms ?? [];
+  const allAttributes = attributes.length > 0 ? attributes : FALLBACK_ATTRIBUTES;
+
+  const basins = useMemo(() => {
+    const found = new Set<string>();
+    storms.forEach((s) => found.add(s.basin));
+    return Array.from(found).sort();
+  }, [storms]);
+
+  /** Client-side filtering keeps the table instant and works offline. */
+  const visible = useMemo(() => {
+    const needle = search.trim().toLowerCase();
+    const floor = Number(minWind) || 0;
+    const rows = storms.filter((s) => {
+      if (basin !== "all" && s.basin !== basin) return false;
+      if (s.max_wind_knots < floor) return false;
+      if (!needle) return true;
+      return (
+        s.name.toLowerCase().includes(needle) ||
+        s.sid.toLowerCase().includes(needle) ||
+        s.category.toLowerCase().includes(needle) ||
+        s.basin.toLowerCase().includes(needle) ||
+        String(s.year) === needle
+      );
+    });
+    const sorted = [...rows];
+    switch (sort) {
+      case "oldest":
+        sorted.sort((a, b) => a.year - b.year || b.max_wind_knots - a.max_wind_knots);
+        break;
+      case "intense":
+        sorted.sort((a, b) => b.max_wind_knots - a.max_wind_knots || b.year - a.year);
+        break;
+      case "weakest":
+        sorted.sort((a, b) => a.max_wind_knots - b.max_wind_knots || b.year - a.year);
+        break;
+      case "name":
+        sorted.sort((a, b) => a.name.localeCompare(b.name) || b.year - a.year);
+        break;
+      case "pressure":
+        sorted.sort(
+          (a, b) =>
+            (a.min_pressure_hpa ?? Number.MAX_SAFE_INTEGER) -
+              (b.min_pressure_hpa ?? Number.MAX_SAFE_INTEGER) || b.year - a.year
+        );
+        break;
+      default:
+        sorted.sort((a, b) => b.year - a.year || b.max_wind_knots - a.max_wind_knots);
+    }
+    return sorted;
+  }, [storms, search, sort, basin, minWind]);
+
+  const rowsShown = showAll ? visible : visible.slice(0, 25);
+
+  const sourceLabel =
+    status?.source === "live"
+      ? "Downloaded live from NOAA NCEI"
+      : status?.source === "cache"
+        ? "Loaded from the local cache"
+        : status?.source === "bundled"
+          ? "Bundled curated records (live archive unreachable)"
+          : (status?.source ?? "Not reported");
+
+  if (!status && !dataset) {
     return (
-      <section className="card">
-        <h3>Live IBTrACS dataset</h3>
-        <div className="error-box">
-          Live dataset unavailable. The backend could not reach the NOAA
-          IBTrACS archive and no local cache was found. The bundled reference
-          records on the previous tab remain available.
+      <section className="card dataset-panel">
+        <div className="panel-heading">
+          <div><span className="eyebrow">NOAA / NCEI</span><h3>Live IBTrACS dataset</h3></div>
+          <span className="timestamp"><Clock3 size={14} /> waiting for the backend…</span>
+        </div>
+        <div className="loading-state">
+          <Loader2 size={18} className="spin-icon" /> Connecting to the dataset API… this
+          panel fills in automatically as soon as the first response arrives.
         </div>
       </section>
     );
   }
 
-  const sourceLabel =
-    status.source === "live"
-      ? "Downloaded live from NOAA NCEI"
-      : status.source === "cache"
-      ? "Loaded from local cache"
-      : status.source === "bundled"
-      ? "Bundled fallback (download unavailable)"
-      : status.source;
-
   return (
     <>
-      <section className="card">
-        <h3>Live IBTrACS dataset</h3>
+      <section className="card dataset-panel">
+        <div className="panel-heading">
+          <div><span className="eyebrow">NOAA / NCEI</span><h3>Live IBTrACS dataset</h3></div>
+          <span className="timestamp">
+            <Clock3 size={14} /> fetched {formatTimestamp(fetchedAt)}
+          </span>
+        </div>
         <p className="reference-note">
           Real observed best-track data from the NOAA NCEI International Best
           Track Archive for Climate Stewardship (IBTrACS v04r01), North Indian
@@ -587,37 +1080,227 @@ function LivePanel({
           these observed storms.
         </p>
         <div className="stat-row">
-          <div className="stat">
-            <div className="stat-value">{status.records}</div>
-            <div className="stat-label">Observed storms</div>
-          </div>
-          <div className="stat">
-            <div className="stat-value">{status.year_range}</div>
-            <div className="stat-label">Year range</div>
-          </div>
-          <div className="stat">
-            <div className="stat-value">{status.cache_size_mb} MB</div>
-            <div className="stat-label">Local cache</div>
-          </div>
-          <div className="stat">
-            <div className="stat-value">{sourceLabel}</div>
-            <div className="stat-label">Data source</div>
-          </div>
+          {SUMMARY_TILES.map((tile) => (
+            <div className="stat" key={tile.key}>
+              <div className="stat-value">
+                {formatSummaryValue(tile.key, summary, status)}
+              </div>
+              <div className="stat-label">{tile.label}</div>
+            </div>
+          ))}
         </div>
-        {status.last_error && (
-          <div className="error-box" style={{ marginTop: 12 }}>
-            Last download issue: {status.last_error}
+
+        <div className="detail-grid">
+          <div><dt>State</dt><dd>{datasetStateLabel(status?.state ?? dataset?.state)}</dd></div>
+          <div><dt>Data source</dt><dd>{sourceLabel}</dd></div>
+          <div><dt>Archive URL</dt><dd className="wrap-anywhere">{status?.url ?? "—"}</dd></div>
+          <div><dt>Licence</dt><dd>{status?.license ?? "Public domain (NOAA/NCEI)"}</dd></div>
+          <div><dt>Cache file</dt><dd className="wrap-anywhere">{status?.cache_file ?? "—"}</dd></div>
+          <div><dt>Cache size</dt><dd>{status ? `${status.cache_size_mb} MB` : "—"}</dd></div>
+          <div><dt>Cache age</dt><dd>{status?.cache_age_hours != null ? `${status.cache_age_hours} h` : "—"}</dd></div>
+          <div><dt>Refresh TTL</dt><dd>{status ? `${status.cache_ttl_hours} h` : "—"}</dd></div>
+          <div><dt>Downloaded</dt><dd>{formatTimestamp(status?.downloaded_at)}</dd></div>
+          <div><dt>Records returned</dt><dd>{dataset ? `${dataset.returned} of ${dataset.total}` : "—"}</dd></div>
+        </div>
+
+        <div className="attribute-line">
+          <b>Records by basin:</b>{" "}
+          {formatCounts(summary?.records_by_basin, status?.records_by_basin) || "—"}
+          <br />
+          <b>Records by IMD category:</b>{" "}
+          {formatCounts(summary?.records_by_category, status?.records_by_category) || "—"}
+        </div>
+
+        {status?.last_error && (
+          <div className="dataset-alert info" style={{ marginBottom: 0 }}>
+            <Info size={16} />
+            <span>
+              Last archive refresh reported: {status.last_error}. The records shown here
+              come from the local best-track copy and stay fully usable.
+            </span>
+          </div>
+        )}
+
+        {stale && (
+          <div className="dataset-alert info" style={{ marginBottom: 0 }}>
+            <Info size={16} />
+            <span>This panel is showing the last successfully loaded record set.</span>
+          </div>
+        )}
+
+        <details className="dataset-docs" open>
+          <summary>Dataset attributes ({allAttributes.length}) — every field in this dataset</summary>
+          <div className="table-scroll">
+            <table className="ref-table wide-table">
+              <thead>
+                <tr><th>Field</th><th>Label</th><th>Source column</th><th>Description</th></tr>
+              </thead>
+              <tbody>
+                {allAttributes.map((attr) => (
+                  <tr key={attr.field}>
+                    <td className="mono">{attr.field}</td>
+                    <td>{attr.label}</td>
+                    <td>{attr.source}</td>
+                    <td>{attr.description}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </details>
+
+        {scale.length > 0 && (
+          <details className="dataset-docs">
+            <summary>IMD intensity scale used to label the record ({scale.length} bands)</summary>
+            <div className="table-scroll">
+              <table className="ref-table">
+                <thead>
+                  <tr><th>Class index</th><th>Minimum wind (kt)</th><th>Category</th></tr>
+                </thead>
+                <tbody>
+                  {scale.map((band) => (
+                    <tr key={band.class_index}>
+                      <td>{band.class_index}</td>
+                      <td>{band.min_wind_knots}</td>
+                      <td>{band.category}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </details>
+        )}
+      </section>
+
+      <section className="card mt-16 dataset-panel">
+        <div className="panel-heading">
+          <div>
+            <span className="eyebrow">COMPLETE OBSERVED RECORD</span>
+            <h3>{storms.length} storms, every attribute</h3>
+          </div>
+          <span className="timestamp">
+            showing {rowsShown.length} of {visible.length} filtered ({storms.length} total)
+          </span>
+        </div>
+
+        <div className="table-toolbar">
+          <label className="filter-field">
+            <Search size={14} />
+            <input
+              className="filter-input"
+              type="search"
+              placeholder="Search name, SID, basin, category or year"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+            />
+          </label>
+          <label className="filter-field">
+            <span>Sort</span>
+            <select className="filter-input" value={sort} onChange={(e) => setSort(e.target.value)}>
+              {Object.entries(SORT_LABELS).map(([value, label]) => (
+                <option key={value} value={value}>{label}</option>
+              ))}
+            </select>
+          </label>
+          <label className="filter-field">
+            <span>Basin</span>
+            <select className="filter-input" value={basin} onChange={(e) => setBasin(e.target.value)}>
+              <option value="all">All basins</option>
+              {basins.map((b) => <option key={b} value={b}>{b}</option>)}
+            </select>
+          </label>
+          <label className="filter-field">
+            <span>Min wind</span>
+            <select className="filter-input" value={minWind} onChange={(e) => setMinWind(e.target.value)}>
+              <option value="0">Any</option>
+              <option value="34">34 kt+</option>
+              <option value="48">48 kt+</option>
+              <option value="64">64 kt+</option>
+              <option value="90">90 kt+</option>
+              <option value="120">120 kt+</option>
+            </select>
+          </label>
+          <button
+            type="button"
+            className="pill-button"
+            onClick={() => setShowAll((value) => !value)}
+            disabled={visible.length <= 25}
+          >
+            {showAll ? "Show first 25" : `Show all ${visible.length}`}
+          </button>
+          <button
+            type="button"
+            className="pill-button"
+            disabled={rowsShown.length === 0}
+            onClick={() => downloadTextFile(
+              "cyclo-vision-ibdtracs-storms.csv",
+              stormsToCsv(rowsShown),
+              "text/csv"
+            )}
+          >
+            <Download size={14} /> CSV
+          </button>
+          <button
+            type="button"
+            className="pill-button"
+            disabled={rowsShown.length === 0}
+            onClick={() => downloadTextFile(
+              "cyclo-vision-ibtracs-storms.json",
+              JSON.stringify({ summary, scale, attributes: allAttributes, storms: rowsShown }, null, 2),
+              "application/json"
+            )}
+          >
+            <Download size={14} /> JSON
+          </button>
+        </div>
+
+        {storms.length === 0 ? (
+          <div className="loading-state">
+            <Loader2 size={18} className="spin-icon" /> The observed record is being read —
+            the table fills in automatically.
+          </div>
+        ) : (
+          <div className="table-scroll">
+            <table className="ref-table wide-table">
+              <thead>
+                <tr>
+                  {allAttributes.map((attr) => (
+                    <th key={attr.field} title={attr.description}>{attr.label}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {rowsShown.map((storm) => (
+                  <tr key={storm.sid}>
+                    {allAttributes.map((attr) => (
+                      <td
+                        key={attr.field}
+                        title={formatAttribute(attr.field, storm)}
+                      >
+                        {formatAttribute(attr.field, storm)}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
       </section>
 
       <section className="card mt-16">
-        <h3>Most recent storms observed</h3>
+        <div className="panel-heading">
+          <div><span className="eyebrow">LEADERBOARDS</span><h3>Most recent storms observed</h3></div>
+          <span className="timestamp">{recent.length} shown</span>
+        </div>
         <StormTable storms={recent} />
       </section>
 
       <section className="card mt-16">
-        <h3>Strongest storms on record (by peak sustained wind)</h3>
+        <div className="panel-heading">
+          <div><span className="eyebrow">LEADERBOARDS</span><h3>Strongest storms on record (by peak sustained wind)</h3></div>
+          <span className="timestamp">{intense.length} shown</span>
+        </div>
         <StormTable storms={intense} />
       </section>
     </>
@@ -626,32 +1309,26 @@ function LivePanel({
 
 function StormTable({ storms }: { storms: IBTrACSStorm[] }) {
   if (storms.length === 0) {
-    return <p className="reference-note">No records returned.</p>;
+    return <p className="reference-note">No records returned yet.</p>;
   }
   return (
-    <div style={{ overflowX: "auto" }}>
-      <table className="ref-table">
+    <div className="table-scroll">
+      <table className="ref-table wide-table">
         <thead>
           <tr>
-            <th>Name</th>
-            <th>Year</th>
-            <th>Category</th>
-            <th>Wind (kt)</th>
-            <th>Pressure (hPa)</th>
-            <th>Genesis (lat, lon)</th>
+            {FALLBACK_ATTRIBUTES.map((attr) => (
+              <th key={attr.field} title={attr.description}>{attr.label}</th>
+            ))}
           </tr>
         </thead>
         <tbody>
-          {storms.map((s) => (
-            <tr key={s.sid}>
-              <td title={s.notes}>{s.name}</td>
-              <td>{s.year}</td>
-              <td>{s.category}</td>
-              <td>{s.max_wind_knots}</td>
-              <td>{s.min_pressure_hpa ?? "n/a"}</td>
-              <td>
-                {s.genesis_lat.toFixed(1)}, {s.genesis_lon.toFixed(1)}
-              </td>
+          {storms.map((storm) => (
+            <tr key={storm.sid}>
+              {FALLBACK_ATTRIBUTES.map((attr) => (
+                <td key={attr.field} title={formatAttribute(attr.field, storm)}>
+                  {formatAttribute(attr.field, storm)}
+                </td>
+              ))}
             </tr>
           ))}
         </tbody>
@@ -660,27 +1337,67 @@ function StormTable({ storms }: { storms: IBTrACSStorm[] }) {
   );
 }
 
-function ReferencePanel({ data }: { data: ReferenceDatasetResponse }) {
-  return <section className="card">
-    <h3>Reference cyclone records</h3>
+function ReferencePanel({ data, fetchedAt }: { data: ReferenceDatasetResponse | null; fetchedAt: Date | null }) {
+  if (!data) {
+    return <section className="card dataset-panel">
+      <div className="panel-heading">
+        <div><span className="eyebrow">BUNDLED CALIBRATION SET</span><h3>Reference cyclone records</h3></div>
+        <span className="timestamp"><Clock3 size={14} /> waiting for the backend…</span>
+      </div>
+      <div className="loading-state">
+        <Loader2 size={18} className="spin-icon" /> Loading the curated calibration set… it
+        appears here automatically.
+      </div>
+    </section>;
+  }
+
+  const basins = formatCounts(data.summary.basins, undefined);
+  return <section className="card dataset-panel">
+    <div className="panel-heading">
+      <div><span className="eyebrow">BUNDLED CALIBRATION SET</span><h3>Reference cyclone records</h3></div>
+      <span className="timestamp"><Clock3 size={14} /> fetched {formatTimestamp(fetchedAt)}</span>
+    </div>
     <p className="reference-note">Curated representative examples bundled with the app so it works offline. For the full observed record downloaded from NOAA, open the Live IBTrACS tab. Demo estimates are illustrative and must not be used for weather warnings.</p>
-    <p>{data.summary.total_events} events · {data.summary.year_range}</p>
-    <div style={{ overflowX: "auto" }}><table className="ref-table">
-      <thead><tr><th>Name</th><th>Year</th><th>Basin</th><th>Category</th><th>Wind (knots)</th><th>Pressure (hPa)</th></tr></thead>
+    <div className="stat-row">
+      <div className="stat"><div className="stat-value">{data.summary.total_events}</div><div className="stat-label">Curated events</div></div>
+      <div className="stat"><div className="stat-value">{data.summary.year_range}</div><div className="stat-label">Year range</div></div>
+      <div className="stat"><div className="stat-value">{data.summary.strongest_wind_knots} kt</div><div className="stat-label">Strongest wind</div></div>
+      <div className="stat"><div className="stat-value">{data.summary.lowest_pressure_hpa} hPa</div><div className="stat-label">Lowest pressure</div></div>
+    </div>
+    <div className="attribute-line">
+      <b>Dataset attributes:</b> name, year, basin, category, peak wind, minimum pressure,
+      landfall coordinates, track direction, forward speed, intensity index, and notes.
+      <br /><b>Basins:</b> {basins || "—"}
+      <br /><b>Categories:</b> {data.summary.categories.join(" · ") || "—"}
+      <br /><b>Last updated:</b> {formatTimestamp(data.summary.updated)}
+    </div>
+    <div className="table-scroll"><table className="ref-table wide-table">
+      <thead><tr><th>Name</th><th>Year</th><th>Basin</th><th>Category</th><th>Wind (knots)</th><th>Pressure (hPa)</th><th>Landfall</th><th>Track</th><th>Intensity</th><th>Notes</th></tr></thead>
       <tbody>{data.dataset.map((event) => <tr key={`${event.name}-${event.year}`}>
         <td title={event.notes}>{event.name}</td><td>{event.year}</td><td>{event.basin}</td>
         <td>{event.category}</td><td>{event.max_wind_knots}</td><td>{event.min_pressure_hpa}</td>
+        <td>{event.landfall_lat.toFixed(1)}, {event.landfall_lon.toFixed(1)}</td>
+        <td>{event.track_direction_deg.toFixed(0)}° / {event.forward_speed_knots.toFixed(1)} kt</td>
+        <td>{event.intensity_index}</td><td title={event.notes}>{event.notes}</td>
       </tr>)}</tbody>
     </table></div>
   </section>;
 }
 
-function SourcesPanel({ sources }: { sources: DataSource[] }) {
-  return <section className="card"><h3>Satellite data sources</h3>
-    {sources.map((source) => <article className="reference-note" key={source.id}>
-      <h4>{source.name} <span className="source-chip">{source.status}</span></h4>
-      <p>{source.description}</p><p>{source.region} · {source.availability}</p>
-    </article>)}
+function SourcesPanel({ sources, fetchedAt }: { sources: DataSource[]; fetchedAt: Date | null }) {
+  return <section className="card dataset-panel"><div className="panel-heading"><div><span className="eyebrow">INGESTION CATALOG</span><h3>Satellite data sources ({sources.length})</h3></div><span className="timestamp"><Clock3 size={14} /> fetched {formatTimestamp(fetchedAt)}</span></div>
+    <div className="attribute-line"><b>Dataset attributes:</b> identifier, provider, satellite type, description, status, availability, region, and source update time.</div>
+    {sources.length === 0 ? (
+      <div className="loading-state">
+        <Loader2 size={18} className="spin-icon" /> Loading the ingestion catalog…
+      </div>
+    ) : (
+      <div className="source-grid">{sources.map((source) => <article className="source-card" key={source.id}>
+        <div className="source-card-head"><h4>{source.name}</h4><span className="source-chip">{source.status}</span></div>
+        <p>{source.description}</p>
+        <dl className="source-details"><div><dt>ID</dt><dd>{source.id}</dd></div><div><dt>Type</dt><dd>{source.satellite_type}</dd></div><div><dt>Region</dt><dd>{source.region}</dd></div><div><dt>Availability</dt><dd>{source.availability}</dd></div><div><dt>Updated</dt><dd>{formatTimestamp(source.last_updated)}</dd></div></dl>
+      </article>)}</div>
+    )}
   </section>;
 }
 

@@ -12,14 +12,34 @@ const API =
 const $ = (sel) => document.querySelector(sel);
 const fmt = (v, d = 1) => (v == null || isNaN(v) ? "--" : Number(v).toFixed(d));
 
+// Datasets must survive a backend that is still starting up (or a dropped
+// packet), so idempotent GETs are retried a few times before the pane falls
+// back to its error box. POSTs are never replayed.
+const API_RETRIES = 3;
+const API_RETRY_BACKOFF_MS = 700;
+
 async function apiFetch(path, options) {
-  const res = await fetch(`${API}/api${path}`, options);
-  if (!res.ok) {
-    let msg = `HTTP ${res.status}`;
-    try { msg = (await res.text()) || msg; } catch { /* ignore */ }
-    throw new Error(msg);
+  const method = ((options && options.method) || "GET").toUpperCase();
+  const attempts = method === "GET" ? API_RETRIES : 1;
+  let lastError = new Error(`${path}: request failed`);
+
+  for (let n = 1; n <= attempts; n += 1) {
+    let retryable = true;
+    try {
+      const res = await fetch(`${API}/api${path}`, options);
+      if (res.ok) return res.json();
+      let msg = `HTTP ${res.status}`;
+      try { msg = (await res.text()) || msg; } catch { /* ignore */ }
+      lastError = new Error(msg);
+      // 5xx is usually transient (backend restarting); 4xx will not improve.
+      retryable = res.status >= 500;
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+    }
+    if (!retryable || n === attempts) break;
+    await new Promise((resolve) => setTimeout(resolve, API_RETRY_BACKOFF_MS * n));
   }
-  return res.json();
+  throw lastError;
 }
 
 /* ---------------- shared: health pills ---------------- */
@@ -373,7 +393,95 @@ function drawTrack(points) {
 
 /* =========================================================================
    DATASETS & SYSTEM TABS (input page)
+
+   Every pane renders as soon as its data arrives and never blanks out: one
+   slow dataset cannot hide the others, and the page keeps polling quietly
+   while the backend is still reading the NOAA archive. There is deliberately
+   no "Retry" prompt -- failures are reported inline as information.
    ========================================================================= */
+const DATASET_POLL_MS = 3000;
+const DATASET_MAX_POLLS = 40;
+
+function esc(value) {
+  return String(value == null ? "" : value).replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  }[c]));
+}
+
+function stateLabel(state) {
+  if (state === "ready") return "loaded";
+  if (state === "warming") return "loading archive...";
+  if (state === "degraded") return "bundled records";
+  return "starting";
+}
+
+function attrValue(storm, field) {
+  const value = storm[field];
+  if (value == null || value === "") return "n/a";
+  if (typeof value === "number") {
+    if (field.endsWith("_lat") || field.endsWith("_lon")) return value.toFixed(2);
+    if (field.endsWith("_knots") || field.endsWith("_deg")) return value.toFixed(1);
+    return String(value);
+  }
+  return String(value);
+}
+
+function countLine(counts) {
+  if (!counts) return "-";
+  return Object.entries(counts).map(([k, v]) => `${esc(k)}: ${v}`).join(" &middot; ");
+}
+
+/* -------- full record table with search / sort / export -------- */
+function renderStormsTable(storms, attributes) {
+  const cols = attributes && attributes.length ? attributes : DEFAULT_ATTRIBUTES;
+  const head = cols.map((a) => `<th title="${esc(a.description)}">${esc(a.label)}</th>`).join("");
+  const body = storms.map((s) => `<tr>${cols
+    .map((a) => `<td title="${esc(attrValue(s, a.field))}">${esc(attrValue(s, a.field))}</td>`)
+    .join("")}</tr>`).join("");
+  return `<div class="tbl-wrap"><table class="tbl">
+    <thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
+}
+
+const DEFAULT_ATTRIBUTES = [
+  { field: "sid", label: "SID" },
+  { field: "name", label: "Name" },
+  { field: "year", label: "Year" },
+  { field: "basin", label: "Basin" },
+  { field: "category", label: "Category" },
+  { field: "max_wind_knots", label: "Peak wind" },
+  { field: "min_pressure_hpa", label: "Min pressure" },
+  { field: "genesis_lat", label: "Genesis lat" },
+  { field: "genesis_lon", label: "Genesis lon" },
+  { field: "landfall_lat", label: "Final lat" },
+  { field: "landfall_lon", label: "Final lon" },
+  { field: "track_direction_deg", label: "Bearing" },
+  { field: "forward_speed_knots", label: "Speed" },
+  { field: "intensity_index", label: "Intensity" },
+  { field: "notes", label: "Notes" },
+];
+
+function downloadText(filename, text, mime) {
+  const blob = new Blob([text], { type: `${mime};charset=utf-8` });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+function stormsToCsv(storms) {
+  if (!storms.length) return "";
+  const cols = Object.keys(storms[0]);
+  const cell = (v) => {
+    const text = v == null ? "" : String(v);
+    return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+  };
+  return [cols.join(","), ...storms.map((s) => cols.map((c) => cell(s[c])).join(","))].join("\n");
+}
+
 function initDatasetsSection() {
   const tabsBox = document.querySelector(".tabs");
   if (!tabsBox) return; // not on the input page
@@ -389,88 +497,344 @@ function initDatasetsSection() {
     if (btn) activate(btn.dataset.tab);
   });
 
-  /* ----- tab 1: data sources + system ----- */
+  const statusBox = $("#datasets-status");
   const srcPane = $("#tab-sources");
-  Promise.all([apiFetch("/data-sources"), apiFetch("/health")])
-    .then(([{ sources }, h]) => {
-      const rows = sources.map((s) => `
-        <tr>
-          <td>${s.name}</td><td>${s.satellite_type || "-"}</td>
-          <td>${s.region || "-"}</td>
-          <td><span class="tag ${s.status === "operational" ? "ok" : ""}">${s.status}</span></td>
-          <td>${s.availability || "-"}</td>
-        </tr>`).join("");
-      srcPane.innerHTML = `
-        <table class="tbl">
-          <thead><tr><th>Name</th><th>Satellite</th><th>Region</th><th>Status</th><th>Availability</th></tr></thead>
-          <tbody>${rows}</tbody>
-        </table>
-        <div class="stat-row">
-          <div class="metric"><div class="v">${h.ml_mode}</div><div class="l">ML mode</div></div>
-          <div class="metric"><div class="v">${h.model_available ? "yes" : "no"}</div><div class="l">Model weights</div></div>
-          <div class="metric"><div class="v">${h.database}</div><div class="l">Database</div></div>
-          <div class="metric"><div class="v">v${h.version}</div><div class="l">API version</div></div>
-        </div>`;
-    })
-    .catch((e) => { srcPane.innerHTML = `<div class="error-box">${e.message}</div>`; });
-
-  /* ----- tab 2: live IBTrACS storms ----- */
   const livePane = $("#tab-live");
-  Promise.all([
-    apiFetch("/ibtracs/status"),
-    apiFetch("/ibtracs/intense?limit=15"),
-    apiFetch("/ibtracs/recent?limit=15"),
-  ])
-    .then(([st, intense, recent]) => {
-      const row = (s) => `
-        <tr>
-          <td>${s.name}</td><td>${s.year}</td><td>${s.basin}</td>
-          <td><span class="tag">${s.category}</span></td>
-          <td>${Math.round(s.max_wind_knots)} kt</td>
-          <td>${s.min_pressure_hpa == null ? "-" : Math.round(s.min_pressure_hpa) + " hPa"}</td>
-          <td>${fmt(s.landfall_lat, 1)}, ${fmt(s.landfall_lon, 1)}</td>
-        </tr>`;
-      const head = `<thead><tr><th>Storm</th><th>Year</th><th>Basin</th><th>Category</th>
-        <th>Peak wind</th><th>Min pressure</th><th>Landfall</th></tr></thead>`;
-      livePane.innerHTML = `
-        <p class="muted small">Source: <strong>${st.source}</strong> &middot; ${st.records} storms
-          &middot; ${st.year_range} &middot; cache ${st.cache_present ? st.cache_size_mb + " MB" : "missing"}.
-          License: ${st.license}. <a href="${st.url}" target="_blank" rel="noreferrer">NOAA IBTrACS</a></p>
-        <div class="subhead">Most intense on record</div>
-        <table class="tbl">${head}<tbody>${intense.storms.map(row).join("")}</tbody></table>
-        <div class="subhead">Most recent seasons</div>
-        <table class="tbl">${head}<tbody>${recent.storms.map(row).join("")}</tbody></table>`;
-    })
-    .catch((e) => { livePane.innerHTML = `<div class="error-box">${e.message}</div>`; });
+  const refPane = $("#tab-ref");
+
+  let polls = 0;
+  let liveState = "cold";
+  let liveSearch = "";
+  let liveSort = "recent";
+  let liveMinWind = 0;
+  let liveLimit = 0;          // 0 = every record
+  let liveStorms = [];
+  let liveAttributes = [];
+  let liveSummary = null;
+  let liveScale = [];
+  let liveStatus = null;
+
+  function setStatus(html, tone) {
+    if (!statusBox) return;
+    statusBox.className = `dataset-status${tone ? ` ${tone}` : ""}`;
+    statusBox.innerHTML = html;
+  }
+
+  /* ----- renderers: every pane is self-contained and never blanks ----- */
+
+  function renderSourcesPane(sources, health, errors) {
+    if (!sources) {
+      srcPane.innerHTML = `<div class="loading">Loading the ingestion catalog&hellip;</div>`;
+      return;
+    }
+    const rows = sources.map((s) => `
+      <tr>
+        <td>${esc(s.name)}</td><td>${esc(s.satellite_type || "-")}</td>
+        <td>${esc(s.region || "-")}</td>
+        <td><span class="tag ${s.status === "operational" ? "ok" : ""}">${esc(s.status)}</span></td>
+        <td>${esc(s.availability || "-")}</td>
+        <td>${esc(s.last_updated || "-")}</td>
+      </tr>`).join("");
+    srcPane.innerHTML = `
+      <div class="stat-row">
+        <div class="metric"><div class="v">${sources.length}</div><div class="l">Catalogued sources</div></div>
+        <div class="metric"><div class="v">${esc(health ? health.ml_mode : "-")}</div><div class="l">ML mode</div></div>
+        <div class="metric"><div class="v">${health && health.model_available ? "yes" : "no"}</div><div class="l">Model weights</div></div>
+        <div class="metric"><div class="v">${esc(health ? health.database : "-")}</div><div class="l">Database</div></div>
+        <div class="metric"><div class="v">v${esc(health ? health.version : "-")}</div><div class="l">API version</div></div>
+      </div>
+      <p class="muted small"><strong>Dataset attributes:</strong> identifier, provider,
+        satellite type, region, status, availability and source update time; the system
+        block reports ML mode, model availability, database state and API version.</p>
+      <div class="tbl-wrap"><table class="tbl">
+        <thead><tr><th>Name</th><th>Satellite</th><th>Region</th><th>Status</th>
+        <th>Availability</th><th>Updated</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div>
+      ${errors && errors.sources ? `<div class="inline-note">Sources reported: ${esc(errors.sources)}</div>` : ""}`;
+  }
+
+  function filterStorms() {
+    const needle = liveSearch.trim().toLowerCase();
+    const rows = liveStorms.filter((s) => {
+      if (s.max_wind_knots < liveMinWind) return false;
+      if (!needle) return true;
+      return (
+        String(s.name).toLowerCase().includes(needle) ||
+        String(s.sid).toLowerCase().includes(needle) ||
+        String(s.category).toLowerCase().includes(needle) ||
+        String(s.basin).toLowerCase().includes(needle) ||
+        String(s.year) === needle
+      );
+    });
+    switch (liveSort) {
+      case "oldest":
+        rows.sort((a, b) => a.year - b.year || b.max_wind_knots - a.max_wind_knots);
+        break;
+      case "intense":
+        rows.sort((a, b) => b.max_wind_knots - a.max_wind_knots || b.year - a.year);
+        break;
+      case "weakest":
+        rows.sort((a, b) => a.max_wind_knots - b.max_wind_knots || b.year - a.year);
+        break;
+      case "name":
+        rows.sort((a, b) => String(a.name).localeCompare(String(b.name)) || b.year - a.year);
+        break;
+      case "pressure":
+        rows.sort((a, b) =>
+          (a.min_pressure_hpa || 9999) - (b.min_pressure_hpa || 9999) || b.year - a.year);
+        break;
+      default:
+        rows.sort((a, b) => b.year - a.year || b.max_wind_knots - a.max_wind_knots);
+    }
+    return rows;
+  }
+
+  /** Summary block for the live pane: every statistic the API reports. */
+  function liveSummaryHtml() {
+    const status = liveStatus || {};
+    const summary = liveSummary || {};
+    return `
+      <div class="stat-row">
+        <div class="metric"><div class="v">${liveStorms.length}</div><div class="l">Observed storms</div></div>
+        <div class="metric"><div class="v">${esc(summary.year_range || status.year_range || "-")}</div><div class="l">Year range</div></div>
+        <div class="metric"><div class="v">${esc(stateLabel(status.state || liveState))}</div><div class="l">Dataset state</div></div>
+        <div class="metric"><div class="v">${esc(status.source || "-")}</div><div class="l">Data source</div></div>
+        <div class="metric"><div class="v">${esc(status.cache_size_mb != null ? status.cache_size_mb + " MB" : "-")}</div><div class="l">Local cache</div></div>
+        <div class="metric"><div class="v">${esc(summary.strongest_wind_knots != null ? summary.strongest_wind_knots + " kt" : "-")}</div><div class="l">Strongest wind</div></div>
+        <div class="metric"><div class="v">${esc(summary.lowest_pressure_hpa != null ? summary.lowest_pressure_hpa + " hPa" : "-")}</div><div class="l">Lowest pressure</div></div>
+        <div class="metric"><div class="v">${esc(summary.named_records != null ? summary.named_records : "-")}</div><div class="l">Named storms</div></div>
+      </div>
+      <p class="muted small">Source: <strong>${esc(status.source || "-")}</strong>
+        &middot; ${esc(status.records != null ? status.records : liveStorms.length)} records
+        &middot; cache ${status.cache_present ? esc(status.cache_size_mb) + " MB" : "missing"}
+        &middot; age ${status.cache_age_hours != null ? esc(status.cache_age_hours) + " h" : "n/a"}
+        &middot; licence ${esc(status.license || "Public domain (NOAA/NCEI)")}.
+        <a href="${esc(status.url || "https://www.ncei.noaa.gov/products/international-best-track-archive")}"
+           target="_blank" rel="noreferrer">NOAA IBTrACS</a></p>
+      <p class="muted small"><strong>Records by basin:</strong> ${countLine(summary.records_by_basin || status.records_by_basin)}<br>
+        <strong>Records by IMD category:</strong> ${countLine(summary.records_by_category || status.records_by_category)}</p>
+      ${status.last_error ? `<div class="inline-note">Last refresh reported: ${esc(status.last_error)}.
+        The records below come from the local best-track copy.</div>` : ""}`;
+  }
+
+  /** Table + toolbar for the complete observed record. */
+  function liveTableHtml(rows, limit) {
+    return `
+      <div class="subhead">Complete observed record &mdash; every attribute</div>
+      <div class="toolbar">
+        <input id="live-search" class="inp" type="search"
+               placeholder="Search name, SID, basin, category or year" value="${esc(liveSearch)}" />
+        <select id="live-sort" class="inp">
+          ${[["recent", "Newest first"], ["oldest", "Oldest first"], ["intense", "Strongest wind"],
+             ["weakest", "Weakest wind"], ["name", "Storm name (A-Z)"], ["pressure", "Lowest pressure"]]
+            .map(([v, l]) => `<option value="${v}"${liveSort === v ? " selected" : ""}>${l}</option>`).join("")}
+        </select>
+        <select id="live-minwind" class="inp">
+          ${[[0, "Any wind"], [34, "34 kt+"], [48, "48 kt+"], [64, "64 kt+"], [90, "90 kt+"], [120, "120 kt+"]]
+            .map(([v, l]) => `<option value="${v}"${liveMinWind === v ? " selected" : ""}>${l}</option>`).join("")}
+        </select>
+        <button id="live-limit" class="btn ghost" type="button">
+          ${liveLimit > 0 ? `Show all ${rows.length}` : "Show first 25"}
+        </button>
+        <button id="live-csv" class="btn ghost" type="button">Download CSV</button>
+        <button id="live-json" class="btn ghost" type="button">Download JSON</button>
+        <span class="muted small">showing ${limit.length} of ${rows.length} filtered
+          (${liveStorms.length} total)</span>
+      </div>
+      ${renderStormsTable(limit, liveAttributes)}
+
+      <div class="subhead">Dataset attributes (${(liveAttributes.length ? liveAttributes : DEFAULT_ATTRIBUTES).length})</div>
+      <div class="tbl-wrap"><table class="tbl">
+        <thead><tr><th>Field</th><th>Label</th><th>Source</th><th>Description</th></tr></thead>
+        <tbody>${(liveAttributes.length ? liveAttributes : DEFAULT_ATTRIBUTES).map((a) => `
+          <tr><td>${esc(a.field)}</td><td>${esc(a.label)}</td>
+          <td>${esc(a.source || "-")}</td><td>${esc(a.description || "-")}</td></tr>`).join("")}
+        </tbody></table></div>
+
+      ${liveScale.length ? `<div class="subhead">IMD intensity scale (${liveScale.length} bands)</div>
+        <div class="tbl-wrap"><table class="tbl">
+          <thead><tr><th>Class index</th><th>Minimum wind (kt)</th><th>Category</th></tr></thead>
+          <tbody>${liveScale.map((b) => `<tr><td>${b.class_index}</td>
+            <td>${b.min_wind_knots}</td><td>${esc(b.category)}</td></tr>`).join("")}</tbody>
+        </table></div>` : ""}
+      <p class="muted small">Curated IMD-calibrated events are on the Reference Dataset tab;
+        analysis results are calibrated against this observed record.</p>`;
+  }
+
+  function renderLivePane() {
+    if (!liveStorms.length) {
+      livePane.innerHTML = `<div class="loading">Reading the NOAA best-track archive&hellip;
+        this pane fills in automatically.</div>`;
+      return;
+    }
+    const rows = filterStorms();
+    const limit = liveLimit > 0 ? rows.slice(0, liveLimit) : rows;
+    livePane.innerHTML = liveSummaryHtml() + liveTableHtml(rows, limit);
+
+    const search = $("#live-search");
+    if (search) {
+      search.addEventListener("input", (e) => { liveSearch = e.target.value; renderLivePane(); });
+      search.focus();
+      search.setSelectionRange(search.value.length, search.value.length);
+    }
+    const sort = $("#live-sort");
+    if (sort) sort.addEventListener("change", (e) => { liveSort = e.target.value; renderLivePane(); });
+    const minWind = $("#live-minwind");
+    if (minWind) minWind.addEventListener("change", (e) => {
+      liveMinWind = Number(e.target.value);
+      renderLivePane();
+    });
+    const limitBtn = $("#live-limit");
+    if (limitBtn) limitBtn.addEventListener("click", () => {
+      liveLimit = liveLimit > 0 ? 0 : 25;
+      renderLivePane();
+    });
+    const csv = $("#live-csv");
+    if (csv) csv.addEventListener("click", () => {
+      downloadText("cyclo-vision-ibtracs-storms.csv", stormsToCsv(limit), "text/csv");
+    });
+    const json = $("#live-json");
+    if (json) json.addEventListener("click", () => {
+      downloadText("cyclo-vision-ibtracs-storms.json", JSON.stringify({
+        summary: liveSummary, scale: liveScale, attributes: liveAttributes, storms: limit,
+      }, null, 2), "application/json");
+    });
+  }
 
   /* ----- tab 3: curated reference dataset ----- */
-  const refPane = $("#tab-ref");
-  apiFetch("/reference-dataset")
-    .then(({ dataset, summary }) => {
-      const rows = dataset.map((d) => `
-        <tr>
-          <td>${d.name}</td><td>${d.year}</td><td>${d.basin}</td>
-          <td><span class="tag">${d.category}</span></td>
-          <td>${Math.round(d.max_wind_knots)} kt</td>
-          <td>${Math.round(d.min_pressure_hpa)} hPa</td>
-          <td>${Math.round(d.forward_speed_knots)} kt</td>
-          <td>${Math.round(d.track_direction_deg)}&deg;</td>
-          <td>${d.notes}</td>
-        </tr>`).join("");
-      refPane.innerHTML = `
-        <div class="stat-row">
-          <div class="metric"><div class="v">${summary.total_events}</div><div class="l">Events</div></div>
-          <div class="metric"><div class="v">${summary.year_range}</div><div class="l">Years</div></div>
-          <div class="metric"><div class="v">${summary.strongest_wind_knots} kt</div><div class="l">Strongest</div></div>
-          <div class="metric"><div class="v">${summary.lowest_pressure_hpa} hPa</div><div class="l">Lowest pressure</div></div>
-        </div>
-        <table class="tbl">
-          <thead><tr><th>Name</th><th>Year</th><th>Basin</th><th>Category</th><th>Peak wind</th>
-          <th>Min pressure</th><th>Fwd speed</th><th>Track dir</th><th>Notes</th></tr></thead>
-          <tbody>${rows}</tbody>
-        </table>
-        <p class="muted small">Curated IMD-calibrated events used for intensity calibration and
-          analog matching. Live data: tab 2.</p>`;
-    })
-    .catch((e) => { refPane.innerHTML = `<div class="error-box">${e.message}</div>`; });
+
+  function renderReferencePane(reference, errors) {
+    if (!reference || !reference.dataset) {
+      refPane.innerHTML = `<div class="loading">Loading the curated calibration set&hellip;</div>`;
+      return;
+    }
+    const { dataset, summary } = reference;
+    const rows = dataset.map((d) => `
+      <tr>
+        <td>${esc(d.name)}</td><td>${d.year}</td><td>${esc(d.basin)}</td>
+        <td><span class="tag">${esc(d.category)}</span></td>
+        <td>${Math.round(d.max_wind_knots)} kt</td>
+        <td>${Math.round(d.min_pressure_hpa)} hPa</td>
+        <td>${fmt(d.landfall_lat, 1)}, ${fmt(d.landfall_lon, 1)}</td>
+        <td>${Math.round(d.track_direction_deg)}&deg; / ${fmt(d.forward_speed_knots, 1)} kt</td>
+        <td>${d.intensity_index}</td>
+        <td>${esc(d.notes)}</td>
+      </tr>`).join("");
+    refPane.innerHTML = `
+      <div class="stat-row">
+        <div class="metric"><div class="v">${summary.total_events}</div><div class="l">Curated events</div></div>
+        <div class="metric"><div class="v">${esc(summary.year_range)}</div><div class="l">Years</div></div>
+        <div class="metric"><div class="v">${summary.strongest_wind_knots} kt</div><div class="l">Strongest</div></div>
+        <div class="metric"><div class="v">${summary.lowest_pressure_hpa} hPa</div><div class="l">Lowest pressure</div></div>
+      </div>
+      <p class="muted small"><strong>Dataset attributes:</strong> name, year, basin, category,
+        peak wind, minimum pressure, landfall coordinates, track direction, forward speed,
+        intensity index and notes.<br>
+        <strong>Basins:</strong> ${countLine(summary.basins)}<br>
+        <strong>Categories:</strong> ${(summary.categories || []).map(esc).join(" &middot; ") || "-"}<br>
+        <strong>Updated:</strong> ${esc(summary.updated || "-")}</p>
+      <div class="tbl-wrap"><table class="tbl">
+        <thead><tr><th>Name</th><th>Year</th><th>Basin</th><th>Category</th><th>Peak wind</th>
+        <th>Min pressure</th><th>Landfall</th><th>Track</th><th>Intensity</th><th>Notes</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div>
+      <p class="muted small">Curated IMD-calibrated events used for intensity calibration and
+        analog matching. The full observed record is on the Live IBTrACS tab.</p>
+      ${errors && errors.reference ? `<div class="inline-note">Reference dataset reported:
+        ${esc(errors.reference)} &mdash; showing the last known copy.</div>` : ""}`;
+  }
+
+  /* ----- one-shot loader with per-dataset degradation ----- */
+
+  function applyOverview(data) {
+    const errors = data.errors || {};
+    renderSourcesPane(data.sources || [], null, errors);
+    const ib = data.ibtracs || {};
+    liveStatus = ib.status || null;
+    liveSummary = ib.summary || null;
+    liveScale = ib.scale || [];
+    liveAttributes = ib.attributes || [];
+    liveStorms = (ib.dataset && ib.dataset.storms) || [];
+    liveState = (ib.status && ib.status.state) || (ib.dataset && ib.dataset.state) || "cold";
+    renderLivePane();
+    renderReferencePane(data.reference, errors);
+    setStatus(
+      `<strong>Datasets:</strong> ${liveStorms.length} IBTrACS records &middot; `
+      + `${(data.reference && data.reference.dataset ? data.reference.dataset.length : 0)} reference events `
+      + `&middot; ${(data.sources || []).length} sources &middot; ${(data.samples || []).length} demo samples `
+      + `&middot; state: ${esc(stateLabel(liveState))}`,
+      liveState === "warming" ? "busy" : liveState === "degraded" ? "warn" : "ok"
+    );
+  }
+
+  async function loadDatasets() {
+    try {
+      const data = await apiFetch("/datasets/overview?recent_limit=5&intense_limit=5");
+      applyOverview(data);
+      // The backend answers instantly from its local copy; while it is still
+      // warming the archive we poll quietly until the full record lands.
+      if (liveState === "warming" && polls < DATASET_MAX_POLLS) {
+        polls += 1;
+        setTimeout(loadDatasets, DATASET_POLL_MS);
+      }
+    } catch (err) {
+      // Older backend or unreachable API: fall back to the individual routes
+      // so every pane still gets its own chance to render.
+      const errors = {};
+      const [sourcesRes, healthRes, liveRes, refRes] = await Promise.allSettled([
+        apiFetch("/data-sources"),
+        apiFetch("/health"),
+        apiFetch("/ibtracs/dataset"),
+        apiFetch("/reference-dataset"),
+      ]);
+
+      if (sourcesRes.status === "fulfilled") {
+        renderSourcesPane(sourcesRes.value.sources || [],
+          healthRes.status === "fulfilled" ? healthRes.value : null, errors);
+      } else {
+        errors.sources = String((sourcesRes.reason && sourcesRes.reason.message) || sourcesRes.reason);
+        renderSourcesPane([], null, errors);
+      }
+
+      if (liveRes.status === "fulfilled") {
+        const value = liveRes.value || {};
+        liveStatus = value;
+        liveSummary = value.summary || null;
+        liveScale = value.scale || [];
+        liveAttributes = value.attributes || [];
+        liveStorms = value.storms || [];
+        liveState = value.state || "cold";
+        renderLivePane();
+      } else {
+        livePane.innerHTML = `<div class="loading">The live archive is unavailable right
+          now &mdash; the backend keeps retrying automatically. The Reference Dataset tab
+          stays fully available.</div>`;
+      }
+
+      if (refRes.status === "fulfilled") {
+        renderReferencePane(refRes.value, errors);
+      } else {
+        errors.reference = String((refRes.reason && refRes.reason.message) || refRes.reason);
+        renderReferencePane(null, errors);
+      }
+
+      setStatus(
+        `<strong>Datasets:</strong> ${liveStorms.length} IBTrACS records &middot; `
+        + `state: ${esc(stateLabel(liveState))} &middot; recovery runs automatically`,
+        liveState === "warming" ? "busy" : liveState === "degraded" ? "warn" : "ok"
+      );
+      if (liveState === "warming" && polls < DATASET_MAX_POLLS) {
+        polls += 1;
+        setTimeout(loadDatasets, DATASET_POLL_MS);
+      }
+    }
+  }
+
+  renderSourcesPane(null, null, null);
+  renderLivePane();
+  renderReferencePane(null, null);
+  setStatus("Reading the dataset catalog&hellip;", "busy");
+  loadDatasets();
 }
+
