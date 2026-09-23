@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import json
+import math
 import re
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
@@ -12,6 +13,7 @@ from PIL import UnidentifiedImageError
 from app.schemas import AnalyzeRequest, AnalysisResult
 from app.services.analysis import analyze_image
 from app.services.demo_data import get_demo_bytes, list_demo_samples
+from ml import postprocessing as post
 from ml.preprocessing import validate_upload
 
 logger = logging.getLogger("cyclo.api.analyze")
@@ -48,6 +50,24 @@ def _to_response(
         for k, v in result.items()
         if k not in ("analysis_id", "source", "image_name")
     }
+
+    # Keep the public response usable even when an older inference worker
+    # returns a partial result. Recompute only missing/non-finite estimates;
+    # valid calibrated values from inference are left unchanged.
+    wind = payload.get("estimated_wind_speed_knots")
+    pressure = payload.get("estimated_pressure_hpa")
+    if not (
+        isinstance(wind, (int, float))
+        and math.isfinite(float(wind))
+        and isinstance(pressure, (int, float))
+        and math.isfinite(float(pressure))
+    ):
+        fallback_wind, fallback_pressure = post.estimate_intensity(
+            int(payload["class_index"]), float(payload["confidence"])
+        )
+        payload["estimated_wind_speed_knots"] = fallback_wind
+        payload["estimated_pressure_hpa"] = fallback_pressure
+
     return AnalysisResult(
         **payload,
         analysis_id=result.get("analysis_id"),

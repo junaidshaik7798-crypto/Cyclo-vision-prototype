@@ -32,7 +32,16 @@ class Settings(BaseSettings):
     APP_ENV: str = "development"
 
     # CORS
-    ALLOWED_ORIGINS: str = "http://localhost:5173,http://127.0.0.1:5173"
+    # Vite dev (5173), ``vite preview`` (4173), VS Code Live Server (5500) and
+    # the ``null`` origin used when the standalone pages are opened straight
+    # from disk. Any of these missing means the browser blocks the dataset
+    # fetch and the UI reports it as a backend failure.
+    ALLOWED_ORIGINS: str = (
+        "http://localhost:5173,http://127.0.0.1:5173,"
+        "http://localhost:4173,http://127.0.0.1:4173,"
+        "http://localhost:5500,http://127.0.0.1:5500,"
+        "null"
+    )
 
     # Database
     DATABASE_URL: str = (

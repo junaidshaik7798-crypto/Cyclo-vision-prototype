@@ -1,0 +1,1 @@
+﻿# Cleared 2026-09-21: the TypeError that truncated the verification report is fixed.

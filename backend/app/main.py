@@ -37,21 +37,44 @@ async def lifespan(app: FastAPI):
     # request needing calibration does not pay the download cost. The
     # wrapper logs the outcome -- previously the thread finished silently,
     # so operators could not tell a completed warm-up from a hung one (#26).
+    #
+    # The warm-up runs through ``warm_async`` -> ``refresh``, which holds the
+    # *refresh* lock only. Dataset reads never wait on it: they answer from
+    # memory, the JSON sidecar or the downloaded CSV while this runs.
     def _warm_ibtracs() -> None:
         try:
-            from app.services.ibtracs import get_status, load_storms
+            from app.services.ibtracs import dataset_snapshot, get_status, refresh
 
-            storms = load_storms()
+            snapshot = dataset_snapshot()   # instant: no network in this call
+            if not snapshot.ready:
+                refresh()
             status = get_status()
             logger.info(
-                "IBTrACS warm-up done: %d storms (source=%s).",
-                len(storms),
+                "IBTrACS warm-up done: %d storms (source=%s, state=%s).",
+                status.get("records", 0),
                 status.get("source", "unknown"),
+                status.get("state", "unknown"),
             )
         except Exception:
             logger.warning("IBTrACS warm-up failed.", exc_info=True)
 
     try:
+        # Make the already-downloaded record readable before the first request
+        # (memory -> sidecar -> CSV parse -> bundled table). Guarded: a broken
+        # dataset must never delay application startup.
+        from app.services.ibtracs import dataset_snapshot
+
+        try:
+            snapshot = dataset_snapshot()
+            logger.info(
+                "IBTrACS dataset available at startup: %d storms (source=%s, state=%s).",
+                len(snapshot.storms),
+                snapshot.source,
+                snapshot.state,
+            )
+        except Exception:  # noqa: BLE001
+            logger.warning("IBTrACS local load failed at startup.", exc_info=True)
+        # Then finish the NOAA refresh off the request path.
         threading.Thread(target=_warm_ibtracs, daemon=True).start()
         logger.info("IBTrACS live dataset warm-up started.")
     except Exception as exc:  # noqa: BLE001

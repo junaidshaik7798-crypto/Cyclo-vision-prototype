@@ -19,12 +19,27 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 from typing import Any
 
 import requests
 
 TIMEOUT = 120
+
+
+def _num(value: Any, width: int = 6, decimals: int = 1, suffix: str = "") -> str:
+    """Format a possibly-missing number without raising.
+
+    IBTrACS storms from the pre-satellite era have ``min_pressure_hpa = None``;
+    formatting that with ``f"{value:>6.0f}"`` raised
+    ``TypeError: unsupported format string passed to NoneType.__format__`` and
+    aborted the whole verification report halfway through.
+    """
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        if math.isfinite(float(value)):
+            return f"{float(value):>{width}.{decimals}f}{suffix}"
+    return f"{'-':>{width}}{suffix}"
 
 
 def _hr(title: str) -> None:
@@ -88,7 +103,8 @@ def main() -> int:
         for i, s in enumerate(data.get("storms", [])[:10], 1):
             print(
                 f"         {i:>3}  {s['name']:<13} {s['year']:<5} "
-                f"{s['max_wind_knots']:>6.1f}kt {s['min_pressure_hpa']:>6.0f}hPa  {s['category']}"
+                f"{_num(s.get('max_wind_knots'), 6, 1, 'kt')} "
+                f"{_num(s.get('min_pressure_hpa'), 6, 0, 'hPa')}  {s['category']}"
             )
 
     # ------------------------------------------------------------------
@@ -135,23 +151,38 @@ def main() -> int:
             )
             print(
                 f"         {sid:<18} {r['classification']:<32} {r['confidence']:>6.3f} "
-                f"{r['estimated_wind_speed_knots']:>6.1f}kt {r['estimated_pressure_hpa']:>6.0f}hPa "
+                f"{_num(r.get('estimated_wind_speed_knots'), 6, 1, 'kt')} "
+                f"{_num(r.get('estimated_pressure_hpa'), 6, 0, 'hPa')} "
                 f"{r['risk_level']:<9} {str(r.get('calibration_source') or '-'):<15} {ref_txt}"
             )
             rows.append((sid, r))
 
         if rows:
-            winds = [r["estimated_wind_speed_knots"] for _, r in rows]
+            winds = [
+                float(r["estimated_wind_speed_knots"])
+                for _, r in rows
+                if isinstance(r.get("estimated_wind_speed_knots"), (int, float))
+            ]
             classes = len({r["classification"] for _, r in rows})
             print()
             print(f"         distinct classes : {classes} of {len(rows)}")
             print(f"         wind monotonic   : {all(b >= a for a, b in zip(winds, winds[1:]))}")
-            print(f"         wind range       : {min(winds):.1f} - {max(winds):.1f} kt")
+            print(
+                f"         wind range       : {min(winds):.1f} - {max(winds):.1f} kt"
+                if winds
+                else "         wind range       : n/a (no numeric estimates returned)"
+            )
 
             _, strong = rows[-1]
+            explainability = strong.get("explainability") or {}
             for k, ok in {
                 "risk_factors": bool(strong.get("risk_factors")),
-                "heatmap_rgb": bool(strong.get("explainability", {}).get("heatmap_rgb")),
+                # P1-2: the heatmap is a base64 PNG now; the legacy RGB array
+                # is accepted too so older workers still pass this check.
+                "heatmap": bool(
+                    explainability.get("heatmap_png_b64")
+                    or explainability.get("heatmap_rgb")
+                ),
                 "track": bool(strong.get("track")),
                 "center": bool(strong.get("center")),
                 "calibration_source": bool(strong.get("calibration_source")),
