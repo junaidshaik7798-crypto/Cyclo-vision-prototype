@@ -180,3 +180,107 @@ NOTES
 
 
 
+
+(e) MAP VISIBILITY + ACCURACY (storm location input, hardened map panel)
+   WHAT CHANGED
+   - frontend/src/api.ts           - analyzeDemo()/uploadImage() accept an
+                                     optional region [lat, lon] and send it
+                                     (JSON body / multipart field).
+   - frontend/src/App.tsx          - "Storm location (lat, lon)" input in the
+                                     Analyze card; parseStormRegion validates
+                                     (2 numbers, |lat|<=90, |lon|<=180) and a
+                                     bad value blocks the analysis with an
+                                     error instead of guessing. Region wired
+                                     into demo AND upload flows.
+                                   - resultCenter(): centre -> track[0] ->
+                                     default fallback used by the risk card,
+                                     map section and map effects, so a partial
+                                     payload can never crash the panel before
+                                     the map renders.
+                                   - hemisphere-aware formatLat/formatLon in
+                                     the risk card and marker tooltip (no
+                                     more hard-coded deg N/E).
+                                   - locationSource label: "from your storm
+                                     location" vs "estimated default location".
+                                   - MapErrorBoundary keyed per result (a
+                                     caught failure no longer latches the
+                                     schematic fallback for later analyses).
+                                   - TileLayer tileerror/load -> .tile-warn
+                                     notice when OSM tiles are unreachable
+                                     (vectors/legend still drawn).
+   - frontend/src/styles.css       - .region-field + .tile-warn styles; fixed
+                                     pre-existing file-input hide rule
+                                     (.upload-area input -> input[type=file]).
+   - frontend/standalone/app.js    - hemisphere-correct centre tooltip.
+   - backend/tests/test_analyze_contract.py
+                                 - 2 new tests: upload region pins
+                                     centre/track[0]/evac zone exactly;
+                                     malformed region -> 422.
+   - scripts/verify_map_render.py  - headless-Chrome render check (visibility
+                                     + exact-coordinate accuracy).
+
+   UNDO (restore 5 files, delete 1 script):
+      git checkout -- frontend/src/api.ts frontend/src/App.tsx frontend/src/styles.css frontend/standalone/app.js backend/tests/test_analyze_contract.py
+      Remove-Item scripts\verify_map_render.py
+      cd frontend && npm run build
+
+VERIFIED
+   - npm run build OK (tsc -b + vite: 2100 modules, ~3 s).
+   - python -m pytest tests -q: all tests pass (36 pre-existing + 2 new = 38).
+   - Live API: POST /api/analyze with region=[17.5,88.3] -> center exactly
+     {lat:17.5, lon:88.3} and track[0] identical; without region -> the
+     documented class-default estimate.
+   - scripts/verify_map_render.py: 13/13 checks PASS on :4173 ->
+     logs/map_render_demo.png (map + tiles + marker + legend after demo
+     analysis) and logs/map_render_upload_region.png (marker tooltip and
+     risk card both read 17.50 deg N, 88.30 deg E for the uploaded image).
+
+NOTES
+   - Single satellite images cannot be geolocated automatically; the
+     location comes from the user input when given, otherwise from the
+     backend's per-class default region (labelled "estimated" in the UI).
+
+
+(f) TRACK START / END LABELS (endpoint pills on the analysis map)
+   WHAT CHANGED
+   - frontend/src/App.tsx          - endpointLabelIcon(): permanent "Start —
+                                      cyclone now" / "End — <last label>
+                                      forecast" div-icon pills. Start marker is
+                                      anchored at the same lat/lon as the storm
+                                      centre (resultCenter); End marker at
+                                      result.track[last]. Legend now reads
+                                      "Forecast track — Start (now) → End
+                                      (+48h)". Schematic SVG fallback labels
+                                      the first/last points "Start · now" and
+                                      "End · <label>".
+   - frontend/src/styles.css       - .track-endpoint / .track-endpoint-text
+                                      pill styles (start red below the marker,
+                                      end blue above the point).
+   - frontend/standalone/app.js    - same pills on the standalone results map;
+                                      SVG fallback draws Start/End text and the
+                                      legend names both endpoints.
+   - frontend/standalone/app.css   - matching .track-endpoint styles +
+                                      .endpoint-lbl for the SVG fallback.
+   - scripts/verify_map_render.py  - 8 new checks (4 demo + 4 upload): start
+                                      label text, end label text, start label
+                                      centred on the storm marker, end label
+                                      inside the map frame.
+   - README.md                     - endpoint labels documented.
+
+   UNDO (restore 5 files):
+      git checkout -- frontend/src/App.tsx frontend/src/styles.css frontend/standalone/app.js frontend/standalone/app.css README.md
+      cd frontend && npm run build
+
+VERIFIED
+   - npm run build OK (tsc -b + vite).
+   - scripts/verify_map_render.py: 21/21 checks PASS on :4173 ->
+     logs/map_render_demo.png, logs/map_render_upload_region.png show both
+     endpoint pills.
+
+NOTES
+   - A Leaflet layer can carry only one tooltip, so the pills are zero-sized
+     div-icon markers (pointer-events: none) rather than extra tooltips; the
+     permanent centre tooltip keeps its slot above the marker.
+   - Start is anchored to resultCenter (centre -> track[0] -> default), so it
+     always sits exactly on the storm marker even for a partial payload.
+

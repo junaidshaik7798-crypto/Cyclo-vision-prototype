@@ -1,0 +1,104 @@
+
+==============================================================================
+1. SERVICE HEALTH
+==============================================================================
+  [OK]   GET /api/health
+         status             = ok
+         app                = CYCLO-VISION
+         version            = 1.0.0
+         ml_mode            = demo
+         model_available    = False
+         database           = unavailable
+
+==============================================================================
+2. LIVE IBTrACS DATASET (real NOAA best-track archive)
+==============================================================================
+  [OK]   GET /api/ibtracs/status
+         source             = cache
+         records            = 343
+         year_range         = 1932-2026
+         cache_size_mb      = 26.59
+         license            = Public domain (NOAA/NCEI)
+  [OK]   GET /api/ibtracs/recent
+
+         RECENT
+           #  NAME          YEAR      WIND     PRES  CATEGORY
+           1  UNNAMED       2026    45.0kt    987hPa  Cyclonic Storm
+           2  KAJIKI        2025    93.0kt    964hPa  Extremely Severe Cyclonic Storm
+           3  BUALOI        2025    80.0kt    970hPa  Very Severe Cyclonic Storm
+           4  SHAKHTI       2025    74.0kt    976hPa  Very Severe Cyclonic Storm
+           5  MONTHA        2025    45.0kt    995hPa  Cyclonic Storm
+           6  SENYAR        2025    45.0kt    996hPa  Cyclonic Storm
+           7  UNNAMED       2025    35.0kt    994hPa  Cyclonic Storm
+           8  DITWAH        2025    35.0kt   1001hPa  Cyclonic Storm
+           9  DANA          2024    65.0kt    985hPa  Very Severe Cyclonic Storm
+          10  REMAL         2024    60.0kt    977hPa  Severe Cyclonic Storm
+  [OK]   GET /api/ibtracs/intense
+
+         STRONGEST
+           #  NAME          YEAR      WIND     PRES  CATEGORY
+           1  FANI          2019   150.0kt    900hPa  Super Cyclonic Storm
+           2  DOT           1985   150.0kt      -hPa  Super Cyclonic Storm
+           3  IDA           1954   150.0kt      -hPa  Super Cyclonic Storm
+           4  MOCHA         2023   145.0kt    908hPa  Super Cyclonic Storm
+           5  AMPHAN        2020   145.0kt    901hPa  Super Cyclonic Storm
+           6  GONU          2007   145.0kt    898hPa  Super Cyclonic Storm
+           7  PHAILIN       2013   140.0kt    918hPa  Super Cyclonic Storm
+           8  SIDR          2007   140.0kt    918hPa  Super Cyclonic Storm
+           9  UNNAMED       1999   140.0kt      -hPa  Super Cyclonic Storm
+          10  UNNAMED       1991   140.0kt      -hPa  Super Cyclonic Storm
+
+==============================================================================
+3. BUNDLED REFERENCE DATASET
+==============================================================================
+  [OK]   GET /api/reference-dataset
+         summary = {"total_events": 14, "year_range": "2013-2024", "basins": {"Bay of Bengal": 13, "Arabian Sea": 1}, "categories": ["Extremely Severe Cyclonic Storm", "Severe Cyclonic Storm", "Super Cyclonic Storm", "Very Severe Cyclonic Storm"], "strongest_
+
+==============================================================================
+4. DATA SOURCES
+==============================================================================
+  [OK]   GET /api/data-sources
+         - insat-3dr              INSAT-3DR
+         - noaa-goes-16-17        NOAA GOES-16/17
+         - nasa-terra-aqua-modis  NASA Terra/Aqua MODIS
+         - eumetsat-meteosat      EUMETSAT Meteosat
+         - himawari-8-9           Himawari-8/9
+
+==============================================================================
+5. DEMO SAMPLES + ANALYSIS (calibrated vs real IBTrACS storms)
+==============================================================================
+  [OK]   GET /api/analyze/samples
+         - sample_clear       Clear Sky -- No Cyclone
+         - sample_dev         Developing Low
+         - sample_severe      Severe Cyclone
+         - sample_vsevere     Very Severe Cyclone
+
+         SAMPLE             CLASSIFICATION                     CONF     WIND     PRES RISK      CALIB           REFERENCE
+         ------------------------------------------------------------------------------------------------------------------------
+         sample_clear       No Cyclone                        0.826   16.3kt   1007hPa LOW       bundled-curated -
+         sample_dev         Deep Depression                   0.702   31.0kt   1000hPa LOW       ibtracs-live    KROVANH (2020)
+         sample_severe      Cyclonic Storm                    0.654   35.8kt   1000hPa LOW       ibtracs-live    DITWAH (2025)
+         sample_vsevere     Severe Cyclonic Storm             0.638   50.7kt    995hPa MODERATE  ibtracs-live    PABUK (2018)
+
+         distinct classes : 4 of 4
+         wind monotonic   : True
+         wind range       : 16.3 - 50.7 kt
+         payload risk_factors         present
+         payload heatmap              present
+         payload track                present
+         payload center               present
+         payload evacuation           present
+         payload calibration_source   present
+
+==============================================================================
+6. DEMO IMAGE SERVING
+==============================================================================
+  [OK]   /data/demo/sample_clear.png     200   463966 bytes  image/png
+  [OK]   /data/demo/sample_dev.png       200   458714 bytes  image/png
+  [OK]   /data/demo/sample_severe.png    200   450796 bytes  image/png
+  [OK]   /data/demo/sample_vsevere.png   200   423691 bytes  image/png
+
+==============================================================================
+RESULT
+==============================================================================
+  ALL CHECKS PASSED

@@ -1,0 +1,6 @@
+[PASS] standalone: start label present -- Start — cyclone now
+[PASS] standalone: end label present -- End — +48h forecast
+[PASS] standalone: start label aligned with marker -- dx=0.0px dy=25.4px
+[PASS] standalone: legend outside the map (never clips labels) -- legend 681x33 vs map 679x380
+
+All standalone map checks passed.

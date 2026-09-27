@@ -1,0 +1,14 @@
+[PASS] demo: real Leaflet map shown (SVG fallback not used)
+[PASS] demo: map frame visible -- height=420
+[PASS] demo: centre marker positioned in map
+[PASS] demo: evacuation zone / track vectors drawn
+[PASS] demo: basemap visible (tiles) or offline notice shown -- tiles_loaded=True offline_notice=False
+[PASS] demo: map legend visible
+[PASS] demo: permanent centre tooltip -- Cyclone centre · 8.00°N 90.00°E
+[PASS] upload: marker tooltip pinned to 17.50°N 88.30°E -- Cyclone centre · 17.50°N 88.30°E
+[PASS] upload: risk-card readout matches -- RISK LEVEL | LOW | Center: 17.50°N, 88.30°E | from your storm location | Cyclone detected: Cyclonic Storm | Wind speed: 35.8 knots | Pressure: 1000.2 hPa | Model confidence: 65.5% (supports risk)
+[PASS] upload: readout labelled as user-provided
+[PASS] upload: centre marker positioned in map
+[PASS] upload: real Leaflet map shown (SVG fallback not used)
+
+All map render checks passed.

@@ -1,0 +1,54 @@
+start: {'rect': {'x': 864.234375, 'y': 1898.6875, 'w': 115.53125, 'h': 18.890625}, 'display': 'block', 'visibility': 'visible', 'opacity': '1', 'zIndex': 'auto', 'color': 'rgb(69, 10, 10)', 'bg': 'rgba(248, 113, 113, 0.92)'}
+end: {'rect': {'x': 853.640625, 'y': 1841.796875, 'w': 116.71875, 'h': 18.890625}, 'display': 'block', 'visibility': 'visible', 'opacity': '1', 'zIndex': 'auto', 'color': 'rgb(8, 47, 73)', 'bg': 'rgba(56, 189, 248, 0.92)'}
+legend: {'rect': {'x': 1054.234375, 'y': 1682.6875, 'w': 259.765625, 'h': 87}, 'display': 'flex', 'visibility': 'visible', 'opacity': '1', 'zIndex': '550', 'color': 'rgb(203, 213, 225)', 'bg': 'rgba(4, 12, 26, 0.72)'}
+chain: [{'cls': 'track-endpoint-text', 'pos': 'absolute', 'z': 'auto', 'of': 'visible'}, {'cls': 'leaflet-marker-icon track-endpoint track-endpoint-end leafle', 'pos': 'absolute', 'z': '502', 'of': 'visible'}, {'cls': 'leaflet-pane leaflet-marker-pane', 'pos': 'absolute', 'z': '600', 'of': 'visible'}, {'cls': 'leaflet-pane leaflet-map-pane', 'pos': 'absolute', 'z': '400', 'of': 'visible'}, {'cls': 'cyclone-map leaflet-container leaflet-touch leaflet-fade-ani', 'pos': 'relative', 'z': 'auto', 'of': 'hidden'}, {'cls': 'cyclone-map-wrap', 'pos': 'relative', 'z': '0', 'of': 'hidden'}, {'cls': 'card', 'pos': 'relative', 'z': 'auto', 'of': 'visible'}, {'cls': 'container', 'pos': 'relative', 'z': '1', 'of': 'visible'}, {'cls': 'DIV', 'pos': 'relative', 'z': 'auto', 'of': 'visible'}, {'cls': 'app', 'pos': 'relative', 'z': 'auto', 'of': 'hidden auto'}]
+hitTest: []
+point: {'cx': 912, 'cy': 1851}
+Traceback (most recent call last):
+  File "C:\Users\SHAIK JUNAID\OneDrive\Documents\CYCLO-VISION\logs\dbg_endpoints.py", line 90, in <module>
+    main(sys.argv[1] if len(sys.argv) > 1 else "http://localhost:4173/")
+    ~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\SHAIK JUNAID\OneDrive\Documents\CYCLO-VISION\logs\dbg_endpoints.py", line 76, in main
+    page.screenshot(
+    ~~~~~~~~~~~~~~~^
+        path="logs/_endpoint_debug.png",
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<5 lines>...
+        },
+        ^^
+    )
+    ^
+  File "C:\Users\SHAIK JUNAID\AppData\Roaming\Python\Python314\site-packages\playwright\sync_api\_generated.py", line 10909, in screenshot
+    self._sync(
+    ~~~~~~~~~~^
+        self._impl_obj.screenshot(
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<13 lines>...
+        )
+        ^
+    )
+    ^
+  File "C:\Users\SHAIK JUNAID\AppData\Roaming\Python\Python314\site-packages\playwright\_impl\_sync_base.py", line 115, in _sync
+    return task.result()
+           ~~~~~~~~~~~^^
+  File "C:\Users\SHAIK JUNAID\AppData\Roaming\Python\Python314\site-packages\playwright\_impl\_page.py", line 830, in screenshot
+    encoded_binary = await self._channel.send(
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^
+        "screenshot", self._timeout_settings.timeout, params
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\SHAIK JUNAID\AppData\Roaming\Python\Python314\site-packages\playwright\_impl\_connection.py", line 76, in send
+    return await self._connection.wrap_api_call(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<3 lines>...
+    )
+    ^
+  File "C:\Users\SHAIK JUNAID\AppData\Roaming\Python\Python314\site-packages\playwright\_impl\_connection.py", line 632, in wrap_api_call
+    raise rewrite_error(error, f"{parsed_st['apiName']}: {error}") from None
+playwright._impl._errors.Error: Page.screenshot: Clipped area is either empty or outside the resulting image
+Call log:
+  - taking page screenshot
+  - waiting for fonts to load...
+  - fonts loaded
+
