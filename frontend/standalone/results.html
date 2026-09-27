@@ -67,14 +67,19 @@
   <section class="card full">
     <h2><span class="ic">&#128506;</span> Where the Cyclone Is &mdash; Map &amp; Evacuation Zone</h2>
     <div class="track-wrap">
-      <div class="map" id="map-holder">
-        <div id="cyclone-map"></div>
-        <div class="map-legend" id="map-legend">Loading map&hellip;</div>
-        <div id="track-map" class="hidden">
-          <svg id="track-svg" viewBox="0 0 100 70" preserveAspectRatio="xMidYMid meet">
-            <g id="svg-lats"></g><g id="svg-track"></g>
-          </svg>
+      <div class="map-col">
+        <div class="map" id="map-holder">
+          <div id="cyclone-map"></div>
+          <div id="track-map" class="hidden">
+            <svg id="track-svg" viewBox="0 0 100 70" preserveAspectRatio="xMidYMid meet">
+              <g id="svg-lats"></g><g id="svg-track"></g>
+            </svg>
+          </div>
         </div>
+        <!-- Legend sits under the map, never over it: Leaflet paints all map
+             layers as one block (map-pane z-index 400), so an overlay legend
+             would clip the permanent Start/End track pills. -->
+        <div class="map-legend" id="map-legend">Loading map&hellip;</div>
       </div>
       <table class="tbl" id="track-tbl">
         <thead><tr><th>Time</th><th>Lat</th><th>Lon</th><th>Cone (km)</th></tr></thead>

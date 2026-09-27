@@ -301,7 +301,10 @@ body {
   box-shadow: inset 0 0 24px rgba(56, 189, 248, 0.08);
 }
 
-.upload-area input {
+/* The file input is triggered by the styled .upload-area click handler, so
+   the native control itself is always hidden (it sits as a sibling of the
+   upload zone, not inside it). */
+input[type="file"] {
   display: none;
 }
 
@@ -575,6 +578,8 @@ body {
   height: 420px;
   width: 100%;
   background: #0b1c3a;
+  /* Keeps every Leaflet pane inside the map's own stacking context so the
+     module's other children (the legend below the map) never mix with it. */
   z-index: 0;
 }
 
@@ -606,14 +611,58 @@ body {
   }
 }
 
-.map-legend {
+/*
+ * Permanent Start/End pills pinned to the first (where the cyclone is now)
+ * and last (+48h) forecast-track points. They are zero-sized div-icon
+ * markers, so the pill inside is absolutely positioned and never eats
+ * pointer events meant for the map underneath.
+ */
+.track-endpoint {
+  background: none;
+  border: 0;
+  pointer-events: none;
+}
+
+.track-endpoint-text {
   position: absolute;
-  z-index: 1000;
-  left: 10px;
-  top: 10px;
+  left: 0;
+  top: 0;
+  white-space: nowrap;
+  font-size: 0.66rem;
+  font-weight: 700;
+  line-height: 1.6;
+  padding: 1px 8px;
+  border-radius: 999px;
+  box-shadow: 0 2px 6px rgba(2, 8, 20, 0.45);
+}
+
+/* Start hangs below its point — the permanent centre tooltip owns "top". */
+.track-endpoint-start .track-endpoint-text {
+  transform: translate(-50%, 16px);
+  background: rgba(248, 113, 113, 0.92);
+  color: #450a0a;
+}
+
+/* End floats above the final forecast point. */
+.track-endpoint-end .track-endpoint-text {
+  transform: translate(-50%, calc(-100% - 14px));
+  background: rgba(56, 189, 248, 0.92);
+  color: #082f49;
+}
+
+.map-legend {
+  /*
+   * In-flow strip UNDER the map, not an overlay: Leaflet paints every map
+   * layer inside .leaflet-map-pane (z-index 400) as one block, so an overlay
+   * legend could only sit on top of -- or behind -- the entire map. On top
+   * it clipped the permanent Start/End track pills and hid the zoom control;
+   * behind it, the tiles covered it. In flow it can never collide.
+   */
+  position: relative;
   display: flex;
-  flex-direction: column;
-  gap: 4px;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin-top: 8px;
   padding: 8px 10px;
   background: rgba(4, 12, 26, 0.82);
   border: 1px solid rgba(56, 189, 248, 0.25);
@@ -1619,4 +1668,74 @@ body {
   margin-top: 0;
 }
 
+
+/* =========================================================================
+   Map accuracy & visibility
+   ========================================================================= */
+
+/* Optional storm-location input: pins centre/track/evacuation zone. */
+.region-field {
+  display: block;
+  margin-top: 14px;
+  font-size: 0.78rem;
+  color: #94a3b8;
+}
+
+.region-field span {
+  display: block;
+  margin-bottom: 6px;
+  color: #cbd5e1;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.region-field input {
+  width: 100%;
+  padding: 9px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(56, 189, 248, 0.25);
+  background: rgba(9, 20, 40, 0.7);
+  color: #e2e8f0;
+  font-size: 0.85rem;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.region-field input:focus {
+  border-color: #38bdf8;
+  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.15);
+}
+
+.region-field input::placeholder {
+  color: #64748b;
+}
+
+.region-field em {
+  display: block;
+  margin-top: 6px;
+  font-style: normal;
+  font-size: 0.7rem;
+  line-height: 1.45;
+  color: #64748b;
+}
+
+/* Shown inside the map frame when OSM tiles cannot be fetched: the vector
+   layers (centre marker, track, cones, evacuation circle) still render, so
+   the notice explains the empty background instead of looking like a bug. */
+.tile-warn {
+  position: absolute;
+  z-index: 1000;
+  right: 10px;
+  bottom: 10px;
+  max-width: 62%;
+  padding: 7px 10px;
+  background: rgba(4, 12, 26, 0.88);
+  border: 1px solid rgba(251, 191, 36, 0.45);
+  border-radius: 8px;
+  font-size: 0.7rem;
+  line-height: 1.4;
+  color: #fde68a;
+  pointer-events: none;
+}
 

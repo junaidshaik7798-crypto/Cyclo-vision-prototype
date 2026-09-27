@@ -187,9 +187,14 @@ export async function getIBTrACSIntense(
 }
 
 export async function analyzeDemo(
-  sampleId?: string
+  sampleId?: string,
+  region?: [number, number] | null
 ): Promise<AnalysisResult> {
-  const body = { source: "demo" };
+  // Region (lat, lon) pins the storm centre the map draws. The backend
+  // validates the pair (P0-2) and falls back to a class-default estimate
+  // only when it is omitted entirely.
+  const body: { source: string; region?: [number, number] } = { source: "demo" };
+  if (region) body.region = region;
   const url = sampleId ? `/analyze/demo/${sampleId}` : "/analyze/demo";
   return request<AnalysisResult>(url, {
     method: "POST",
@@ -198,10 +203,14 @@ export async function analyzeDemo(
   });
 }
 
-export async function uploadImage(file: File): Promise<AnalysisResult> {
+export async function uploadImage(
+  file: File,
+  region?: [number, number] | null
+): Promise<AnalysisResult> {
   const formData = new FormData();
   formData.append("file", file);
   formData.append("source", "upload");
+  if (region) formData.append("region", JSON.stringify(region));
   return request<AnalysisResult>("/analyze", {
     method: "POST",
     body: formData,

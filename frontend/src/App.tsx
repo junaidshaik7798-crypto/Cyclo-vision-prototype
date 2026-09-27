@@ -176,6 +176,53 @@ function downloadTextFile(filename: string, text: string, mime: string): void {
   URL.revokeObjectURL(url);
 }
 
+/**
+ * Parse a "lat, lon" storm location. Blank input returns null (use the
+ * backend's estimated default region); anything unparseable throws so the
+ * analysis never runs against coordinates the user did not mean.
+ */
+function parseStormRegion(raw: string): [number, number] | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  const parts = trimmed.split(/[,\\s]+/).filter(Boolean).map(Number);
+  if (
+    parts.length !== 2 ||
+    parts.some((n) => !Number.isFinite(n)) ||
+    Math.abs(parts[0]) > 90 ||
+    Math.abs(parts[1]) > 180
+  ) {
+    throw new Error(
+      "Storm location must be two numbers: latitude, longitude (e.g. 17.5, 88.3)."
+    );
+  }
+  return [parts[0], parts[1]];
+}
+
+/** Hemisphere-aware coordinates so a W/S input never renders as °E/°N. */
+function formatLat(lat: number): string {
+  return `${Math.abs(lat).toFixed(2)}°${lat >= 0 ? "N" : "S"}`;
+}
+function formatLon(lon: number): string {
+  return `${Math.abs(lon).toFixed(2)}°${lon >= 0 ? "E" : "W"}`;
+}
+
+/**
+ * The single centre every map surface draws on: reported centre -> first
+ * track point -> default region. A partial/legacy payload can degrade to an
+ * estimate, but it can never crash the results panel before the map renders.
+ */
+function resultCenter(result: AnalysisResult): { lat: number; lon: number } {
+  const c = result.center;
+  if (c && Number.isFinite(c.lat) && Number.isFinite(c.lon)) {
+    return { lat: c.lat, lon: c.lon };
+  }
+  const first = result.track?.[0];
+  if (first && Number.isFinite(first.lat) && Number.isFinite(first.lon)) {
+    return { lat: first.lat, lon: first.lon };
+  }
+  return { lat: 13.5, lon: 90.0 };
+}
+
 function stormsToCsv(storms: IBTrACSStorm[]): string {
   if (storms.length === 0) return "";
   const columns = Object.keys(storms[0]) as (keyof IBTrACSStorm)[];
@@ -237,6 +284,13 @@ export default function App() {
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Optional user-supplied storm location ("lat, lon"). When present it pins
+  // the map centre, forecast track and evacuation zone to exact coordinates;
+  // when blank the backend falls back to its estimated default region.
+  const [stormRegion, setStormRegion] = useState("");
+  const [locationSource, setLocationSource] = useState<"provided" | "estimated">(
+    "estimated"
+  );
   const [tab, setTab] = useState<TabKey>("analyze");
   const [datasetErrors, setDatasetErrors] = useState<DatasetErrors>({});
   const [datasetNotices, setDatasetNotices] = useState<Record<string, string>>({});
@@ -456,13 +510,21 @@ export default function App() {
 
   const runAnalysis = useCallback(
     async (sampleId?: string) => {
+      let region: [number, number] | null = null;
+      try {
+        region = parseStormRegion(stormRegion);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Invalid storm location");
+        return;
+      }
       setLoading(true);
       setError(null);
       setResult(null);
       setImageUrl(null);
       try {
-        const r = await analyzeDemo(sampleId);
+        const r = await analyzeDemo(sampleId, region);
         setResult(r);
+        setLocationSource(region ? "provided" : "estimated");
         const filename = r.demo_sample?.filename;
         if (filename) {
           setImageUrl(`/data/demo/${filename}`);
@@ -473,7 +535,7 @@ export default function App() {
         setLoading(false);
       }
     },
-    []
+    [stormRegion]
   );
   const handlePickSample = (id: string) => {
     setSelectedSample(id);
@@ -487,13 +549,22 @@ export default function App() {
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    let region: [number, number] | null = null;
+    try {
+      region = parseStormRegion(stormRegion);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Invalid storm location");
+      e.target.value = "";
+      return;
+    }
     setLoading(true);
     setError(null);
     setResult(null);
     setImageUrl(URL.createObjectURL(file));
     try {
-      const r = await uploadImage(file);
+      const r = await uploadImage(file, region);
       setResult(r);
+      setLocationSource(region ? "provided" : "estimated");
       setSelectedSample(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Upload failed");
@@ -720,6 +791,22 @@ export default function App() {
                     </div>
                   </div>
                 </StarBorder>
+                <label className="region-field" htmlFor="storm-region-input">
+                  <span>Storm location (lat, lon) — optional</span>
+                  <input
+                    id="storm-region-input"
+                    type="text"
+                    value={stormRegion}
+                    onChange={(e) => setStormRegion(e.target.value)}
+                    placeholder="e.g. 17.5, 88.3"
+                    spellCheck={false}
+                    autoComplete="off"
+                  />
+                  <em>
+                    Pins the map centre, forecast track and evacuation zone to
+                    exact coordinates. Blank = estimated default region.
+                  </em>
+                </label>
                 <input
                   ref={fileInputRef}
                   type="file"
@@ -758,7 +845,11 @@ export default function App() {
               {error && <div className="error-box">{error}</div>}
 
               {result && !loading && (
-                <ResultPanel result={result} imageUrl={imageUrl} />
+                <ResultPanel
+                  result={result}
+                  imageUrl={imageUrl}
+                  locationSource={locationSource}
+                />
               )}
 
               {!result && !loading && !error && (
@@ -817,11 +908,14 @@ export default function App() {
 function ResultPanel({
   result,
   imageUrl,
+  locationSource,
 }: {
   result: AnalysisResult;
   imageUrl: string | null;
+  locationSource: "provided" | "estimated";
 }) {
   const riskClass = (result.risk_level || "low").toLowerCase();
+  const center = resultCenter(result);
 
   // P1-2: the backend now returns a base64 PNG, so the client no longer
   // has to rasterise a 1-2 MB pixel array through a canvas.
@@ -902,8 +996,12 @@ function ResultPanel({
             </div>
           </div>
           <div style={{ textAlign: "right", fontSize: "0.8rem", opacity: 0.7 }}>
-            Center: {result.center.lat.toFixed(2)}°N,{" "}
-            {result.center.lon.toFixed(2)}°E
+            Center: {formatLat(center.lat)}, {formatLon(center.lon)}
+            <div style={{ fontSize: "0.7rem", opacity: 0.8, marginTop: 2 }}>
+              {locationSource === "provided"
+                ? "from your storm location"
+                : "estimated default location"}
+            </div>
           </div>
         </div>
         {result.risk_factors.length > 0 && (
@@ -928,7 +1026,12 @@ function ResultPanel({
         </div>
       )}
 
-      <MapErrorBoundary fallback={<TrackMap points={result.track} />}>
+      {/* Keyed per result so a boundary that caught one failure starts fresh
+          for the next analysis instead of latching the schematic fallback. */}
+      <MapErrorBoundary
+        key={`${result.image_name ?? "result"}:${center.lat}:${center.lon}:${result.track.length}`}
+        fallback={<TrackMap points={result.track} />}
+      >
         <CycloneMapSection result={result} />
       </MapErrorBoundary>
 
@@ -1016,11 +1119,18 @@ function TrackMap({
             <text
               x={x(p.lon) + 8}
               y={y(p.lat) + 4}
-              fill="#e0f2fe"
+              fill={i === 0 || i === points.length - 1 ? "#e0f2fe" : "#a5b8cf"}
               fontSize="10"
+              fontWeight={i === 0 || i === points.length - 1 ? 700 : 400}
               fontFamily="sans-serif"
             >
-              {p.label}
+              {/* The endpoints are called out explicitly: the track starts at
+                  the cyclone's current position and ends at +48h. */}
+              {i === 0
+                ? "Start · now"
+                : i === points.length - 1
+                  ? `End · ${p.label}`
+                  : p.label}
             </text>
           </g>
         ))}
@@ -1051,12 +1161,34 @@ const stormDivIcon = divIcon({
 });
 
 /**
+ * Permanent "Start"/"End" pills pinned to the two ends of the forecast track,
+ * so where the cyclone is *starting* (its current centre) and where the track
+ * *ends* (+48h) are readable without hovering. Rendered as div-icon markers
+ * rather than tooltips because a Leaflet layer carries exactly one tooltip and
+ * the centre marker already owns that slot.
+ */
+function endpointLabelIcon(kind: "start" | "end", label?: string) {
+  const text =
+    kind === "start"
+      ? "Start — cyclone now"
+      // Track labels come back as plain values ("+48h"); strip anything that
+      // could be interpreted as markup before injecting it as HTML.
+      : `End — ${(label ?? "+48h").replace(/[<>&"]/g, "")} forecast`;
+  return divIcon({
+    className: `track-endpoint track-endpoint-${kind}`,
+    html: `<span class="track-endpoint-text">${text}</span>`,
+    iconSize: [0, 0],
+    iconAnchor: [0, 0],
+  });
+}
+
+/**
  * Imperative Leaflet bits with no declarative equivalent: framing the storm
  * (centre + evacuation zone + track) and the metric scale bar.
  */
 function CycloneMapEffects({ result }: { result: AnalysisResult }) {
   const map = useMap();
-  const { lat, lon } = result.center;
+  const { lat, lon } = resultCenter(result);
 
   useEffect(() => {
     const radiusKm = Math.max(result.evacuation?.radius_km ?? 0, 75);
@@ -1089,9 +1221,14 @@ function CycloneMapEffects({ result }: { result: AnalysisResult }) {
  * evacuation zone drawn as an area around the storm centre.
  */
 function CycloneMapSection({ result }: { result: AnalysisResult }) {
-  const { lat, lon } = result.center;
+  const { lat, lon } = resultCenter(result);
   const evac: EvacuationZone | null = result.evacuation ?? null;
   const trackPositions: LatLngTuple[] = result.track.map((p) => [p.lat, p.lon]);
+  // A handful of tile errors means the basemap cannot be fetched (offline /
+  // blocked CDN). The vector layers still draw, so the map stays usable --
+  // we just tell the user why the background looks empty.
+  const [tileErrors, setTileErrors] = useState(0);
+  const tilesDown = tileErrors >= 4;
 
   return (
     <div className="mt-16">
@@ -1103,6 +1240,10 @@ function CycloneMapSection({ result }: { result: AnalysisResult }) {
           <TileLayer
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+            eventHandlers={{
+              tileerror: () => setTileErrors((n) => n + 1),
+              load: () => setTileErrors(0),
+            }}
           />
           {evac && evac.radius_km > 0 && (
             <Circle
@@ -1167,14 +1308,50 @@ function CycloneMapSection({ result }: { result: AnalysisResult }) {
           ))}
           <Marker position={[lat, lon]} icon={stormDivIcon}>
             <Tooltip permanent direction="top" offset={[0, -14]}>
-              Cyclone centre · {lat.toFixed(2)}°N {lon.toFixed(2)}°E
+              Cyclone centre · {formatLat(lat)} {formatLon(lon)}
             </Tooltip>
           </Marker>
+          {/* Start of the track = the cyclone's current (starting) position. */}
+          <Marker
+            position={[lat, lon]}
+            icon={endpointLabelIcon("start")}
+            interactive={false}
+            keyboard={false}
+            zIndexOffset={300}
+          />
+          {/* End of the track = the last forecast point (+48h). */}
+          {result.track.length > 1 && (
+            <Marker
+              position={[
+                result.track[result.track.length - 1].lat,
+                result.track[result.track.length - 1].lon,
+              ]}
+              icon={endpointLabelIcon(
+                "end",
+                result.track[result.track.length - 1].label
+              )}
+              interactive={false}
+              keyboard={false}
+              zIndexOffset={300}
+            />
+          )}
+          {tilesDown && (
+            <div className="tile-warn" role="status">
+              Basemap tiles unavailable (offline) — centre, forecast track and
+              evacuation zone are still shown and positioned accurately
+            </div>
+          )}
           <CycloneMapEffects result={result} />
         </MapContainer>
+        {/*
+         * The legend lives BELOW the map, never on it: Leaflet groups every
+         * map layer inside .leaflet-map-pane (z-index 400), so an overlay
+         * legend could only ever be painted over the whole map -- it would
+         * clip the permanent Start/End track pills and hide the zoom control.
+         */}
         <div className="map-legend">
           <span><i className="lg lg-storm" /> Cyclone centre</span>
-          <span><i className="lg lg-track" /> Forecast track (+6h → +48h)</span>
+          <span><i className="lg lg-track" /> Forecast track — Start (now) → End (+48h)</span>
           <span><i className="lg lg-cone" /> Uncertainty cone</span>
           {evac && (
             <span>

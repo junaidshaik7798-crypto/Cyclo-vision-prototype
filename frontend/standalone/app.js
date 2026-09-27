@@ -425,9 +425,36 @@ function renderLocationMap(r) {
     iconAnchor: [13, 13],
   });
   L.marker([center.lat, center.lon], { icon: stormIcon }).addTo(map).bindTooltip(
-    `Cyclone centre &middot; ${center.lat.toFixed(2)}&deg;N ${center.lon.toFixed(2)}&deg;E`,
+    `Cyclone centre &middot; ${center.lat.toFixed(2)}&deg;${center.lat >= 0 ? "N" : "S"} ` +
+    `${center.lon.toFixed(2)}&deg;${center.lon >= 0 ? "E" : "W"}`,
     { permanent: true, direction: "top", offset: [0, -14] }
   );
+
+  /* Permanent Start/End pills: the track starts where the cyclone is now
+     (the centre) and ends at the last forecast point (+48h). */
+  const endpointIcon = (kind, text) => L.divIcon({
+    className: `track-endpoint track-endpoint-${kind}`,
+    html: `<span class="track-endpoint-text">${esc(text)}</span>`,
+    iconSize: [0, 0],
+    iconAnchor: [0, 0],
+  });
+  if (points.length > 0) {
+    L.marker([center.lat, center.lon], {
+      icon: endpointIcon("start", "Start — cyclone now"),
+      interactive: false,
+      keyboard: false,
+      zIndexOffset: 300,
+    }).addTo(map);
+  }
+  if (points.length > 1) {
+    const last = points[points.length - 1];
+    L.marker([last.lat, last.lon], {
+      icon: endpointIcon("end", `End — ${last.label} forecast`),
+      interactive: false,
+      keyboard: false,
+      zIndexOffset: 300,
+    }).addTo(map);
+  }
 
   /* Frame the storm: centre + evacuation zone + track (with margin). */
   const bounds = L.latLngBounds([[center.lat, center.lon]]);
@@ -441,7 +468,7 @@ function renderLocationMap(r) {
   if (legend) {
     legend.innerHTML =
       `<span><i class="lg lg-storm"></i> Cyclone centre</span>` +
-      `<span><i class="lg lg-track"></i> Forecast track (+6h..+48h)</span>` +
+      `<span><i class="lg lg-track"></i> Forecast track: Start (now) &rarr; End (+48h)</span>` +
       `<span><i class="lg lg-cone"></i> Uncertainty cone</span>` +
       `<span><i class="lg lg-evac"></i> Evacuation zone (${esc(evac.radius_km)} km)</span>`;
   }
@@ -514,10 +541,22 @@ function drawTrack(points) {
     title.textContent = `${p.label}: ${p.lat.toFixed(2)}, ${p.lon.toFixed(2)} (cone ${p.cone_km} km)`;
     c.appendChild(title);
     g.appendChild(c);
+
+    /* Call out the endpoints: where the cyclone is starting and where the
+       track ends. Labels for the intermediate points stay in the tooltip. */
+    if (i === 0 || i === points.length - 1) {
+      const t = document.createElementNS(NS, "text");
+      t.setAttribute("x", X(p.lon) + 2.8);
+      t.setAttribute("y", Y(p.lat) + (i === 0 ? 4.6 : -2.4));
+      t.setAttribute("class", "endpoint-lbl");
+      t.textContent = i === 0 ? "Start" : `End (${p.label})`;
+      g.appendChild(t);
+    }
   });
   const legend = document.querySelector(".map-legend");
   if (legend) legend.textContent =
-    `white = current - blue = forecast (+6h..+48h) - dashed circle = ${now.cone_km} km uncertainty cone`;
+    `white = Start (current) - blue = forecast to End (${points[points.length - 1].label}) ` +
+    `- dashed circle = ${now.cone_km} km uncertainty cone`;
 }
 
 /* =========================================================================

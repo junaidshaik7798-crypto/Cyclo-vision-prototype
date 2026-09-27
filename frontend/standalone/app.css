@@ -190,7 +190,19 @@ input[type="range"] { accent-color: var(--cyan); }
 
 .track-wrap { display: grid; grid-template-columns: 1.4fr 1fr; gap: 18px; }
 @media (max-width: 860px) { .track-wrap { grid-template-columns: 1fr; } }
-.map { border-radius: 12px; border: 1px solid var(--line); background: linear-gradient(180deg,#071528,#0a1f38); min-height: 280px; position: relative; overflow: hidden; }
+/* Map column: the map box and its legend stack vertically under the table row */
+.map-col { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.map {
+  border-radius: 12px; border: 1px solid var(--line);
+  background: linear-gradient(180deg,#071528,#0a1f38);
+  min-height: 280px; position: relative; overflow: hidden;
+  /* Owns the map module's stacking context: every Leaflet pane stays in
+     here, so nothing inside the map can leak over the legend below it. */
+  z-index: 0;
+}
+#cyclone-map {
+  height: 380px; width: 100%; border-radius: 12px; background: #0b1c3a;
+}
 .map svg { position: absolute; inset: 0; width: 100%; height: 100%; }
 .track-draw { fill: none; stroke: var(--cyan); stroke-width: .5; stroke-dasharray: 2 1.4; animation: dashflow 1.6s linear infinite; }
 @keyframes dashflow { to { stroke-dashoffset: -3.4; } }
@@ -199,12 +211,16 @@ input[type="range"] { accent-color: var(--cyan); }
 .cone { fill: rgba(56,189,248,.10); stroke: rgba(56,189,248,.4); stroke-dasharray: 1.5 1.5; }
 .grid-line { stroke: rgba(125,147,178,.14); stroke-width: .18; }
 .grid-lbl { fill: var(--mut); font-size: 2px; }
+.endpoint-lbl { fill: #e0f2fe; font-size: 2.6px; font-weight: 700; }
 
 /* ---- location map (Leaflet) + evacuation zone ---- */
-#cyclone-map { height: 380px; width: 100%; border-radius: 12px; background: #0b1c3a; z-index: 0; }
 .map-legend {
-  position: absolute; z-index: 1000; right: 10px; top: 10px;
-  display: flex; flex-direction: column; gap: 4px;
+  /* In-flow strip UNDER the map, never an overlay: Leaflet paints every map
+     layer inside .leaflet-map-pane (z-index 400) as one block, so an overlay
+     legend would either clip the permanent Start/End track pills or hide
+     behind the tiles. In flow it can never collide with the map layers. */
+  position: relative;
+  display: flex; flex-wrap: wrap; gap: 4px 14px;
   padding: 8px 10px; background: rgba(4,12,26,.82);
   border: 1px solid var(--line); border-radius: 8px;
   color: var(--mut); font-size: .68rem; pointer-events: none;
@@ -225,6 +241,22 @@ input[type="range"] { accent-color: var(--cyan); }
 @keyframes cyclonePulse {
   70% { box-shadow: 0 0 0 18px rgba(248,113,113,0); }
   100% { box-shadow: 0 0 0 0 rgba(248,113,113,0); }
+}
+/* Permanent Start/End pills on the first and last forecast-track points. */
+.track-endpoint { background: none; border: 0; pointer-events: none; }
+.track-endpoint-text {
+  position: absolute; left: 0; top: 0; white-space: nowrap;
+  font-size: .66rem; font-weight: 700; line-height: 1.6;
+  padding: 1px 8px; border-radius: 999px;
+  box-shadow: 0 2px 6px rgba(2,8,20,.45);
+}
+.track-endpoint-start .track-endpoint-text {
+  transform: translate(-50%, 16px);
+  background: rgba(248,113,113,.92); color: #450a0a;
+}
+.track-endpoint-end .track-endpoint-text {
+  transform: translate(-50%, calc(-100% - 14px));
+  background: rgba(56,189,248,.92); color: #082f49;
 }
 .evac-callout {
   margin-top: 14px; padding: 10px 14px; border-radius: 8px;

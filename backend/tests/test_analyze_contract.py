@@ -15,6 +15,7 @@ from __future__ import annotations
 import base64
 import io
 
+import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
 
@@ -96,3 +97,42 @@ def test_analyze_demo_region_is_validated(client: TestClient):
 
     out_of_range = client.post("/api/analyze/demo", json={"region": [200.0, 90.0]})
     assert out_of_range.status_code == 422, out_of_range.text
+
+
+def test_upload_region_pins_map_geometry(client: TestClient):
+    """Map accuracy: a supplied region drives centre, track origin and zone.
+
+    The frontend sends the user's "storm location" as the multipart ``region``
+    field. The analysis map draws the centre marker, the forecast track and
+    the evacuation circle from these values, so they must equal the supplied
+    pair exactly -- an off-by-default (class-estimated) centre here would put
+    the marker in the wrong place for every upload.
+    """
+    resp = client.post(
+        "/api/analyze",
+        files={"file": ("cyclone.PNG", _png(), "image/png")},
+        data={"region": "[17.5, 88.3]"},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+
+    assert body["center"] == {"lat": 17.5, "lon": 88.3}
+    # Track point 0 is the storm's current position: it must coincide with
+    # the centre marker, and the evacuation zone is drawn around the same
+    # point with a positive radius.
+    first = body["track"][0]
+    assert first["lat"] == pytest.approx(17.5)
+    assert first["lon"] == pytest.approx(88.3)
+    assert first["hours"] == 0
+    assert body["evacuation"] is not None
+    assert body["evacuation"]["radius_km"] > 0
+
+
+def test_upload_rejects_malformed_region(client: TestClient):
+    """Garbage region text must 422 instead of silently guessing a centre."""
+    resp = client.post(
+        "/api/analyze",
+        files={"file": ("cyclone.PNG", _png(), "image/png")},
+        data={"region": "not-a-region"},
+    )
+    assert resp.status_code == 422, resp.text

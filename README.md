@@ -8,16 +8,22 @@ AI-powered tropical cyclone intelligence from satellite imagery. CYCLO-VISION ac
 
 - Upload JPG, JPEG, PNG, or TIFF satellite images up to 10 MB.
 - Analyze bundled demo cyclone samples.
-- Optional storm-centre input as latitude and longitude.
+- Optional storm-centre input as latitude and longitude (React dashboard and
+  standalone page) — it pins the analysis map's centre marker, forecast track
+  and evacuation zone to those exact coordinates.
 - Cyclone detection and IMD-style intensity classification.
 - Estimated wind speed in knots and pressure in hPa.
 - Confidence score, risk level, and risk factors.
 - Explainability heatmap overlay for the analyzed image.
-- Forecast track points from +6 h to +48 h with an uncertainty cone.
+- Forecast track points from +6 h to +48 h with an uncertainty cone. The two
+  endpoints are permanently labelled on the map: **Start — cyclone now** at the
+  storm's current position and **End — +48h forecast** at the last track point.
 - Interactive OpenStreetMap (Leaflet) view of where the storm is, with the forecast
   track, uncertainty cones and the recommended evacuation zone drawn as an area
-  around the storm centre (falls back to a schematic SVG map when tiles/Leaflet
-  are unavailable).
+  around the storm centre. The map always renders after an analysis (the centre
+  degrades to an estimate instead of blanking the panel), shows an offline notice
+  when basemap tiles cannot be fetched while keeping all layers drawn, and falls
+  back to a schematic SVG map only if Leaflet itself fails.
 - React Bits motion effects in the React dashboard: WebGL aurora hero backdrop,
   animated gradient headline, glowing star-border chips, shiny sweep text, and
   click spark bursts on every click.
