@@ -29,8 +29,14 @@ try:
     import torch
     import torch.nn as nn
 
+    _MODEL_BASE = nn.Module
     _TORCH_AVAILABLE = True
 except Exception:  # pragma: no cover
+    torch = None
+    nn = None
+    # Keep the module importable in the documented demo-only setup. The model
+    # constructor checks _TORCH_AVAILABLE before it uses any PyTorch layers.
+    _MODEL_BASE = object
     _TORCH_AVAILABLE = False
 
 
@@ -50,7 +56,7 @@ CLASS_WIND_KNOTS = [15, 25, 32, 40, 60, 85, 115]
 CLASS_PRESSURE_HPA = [1008, 1002, 996, 990, 972, 958, 938]
 
 
-class CycloCNN(nn.Module):
+class CycloCNN(_MODEL_BASE):
     """Small 4-block CNN for satellite-image cyclone classification."""
 
     def __init__(self, in_channels: int = 3, num_classes: int = 7):

@@ -18,6 +18,9 @@ AI-powered tropical cyclone intelligence from satellite imagery. CYCLO-VISION ac
   track, uncertainty cones and the recommended evacuation zone drawn as an area
   around the storm centre (falls back to a schematic SVG map when tiles/Leaflet
   are unavailable).
+- React Bits motion effects in the React dashboard: WebGL aurora hero backdrop,
+  animated gradient headline, glowing star-border chips, shiny sweep text, and
+  click spark bursts on every click.
 - Historical reference and calibration information from IBTrACS/reference data.
 - Health, data-source, live IBTrACS, and reference-dataset views.
 - Optional PostgreSQL persistence for analysis history.
@@ -83,6 +86,17 @@ npm run dev
 ```
 
 Open http://127.0.0.1:5173. Vite proxies `/api` and `/data` requests to the backend at port 8000.
+
+## Streamlit Cloud Edition
+
+The repository also includes a Streamlit interface that calls the existing Python services directly. It runs without starting the separate FastAPI and Vite development servers:
+
+```powershell
+python -m pip install -r requirements.txt
+streamlit run streamlit_app.py
+```
+
+To publish it on Streamlit Community Cloud, push this repository to GitHub, create an app from the repository, and choose `streamlit_app.py` as the entrypoint. The root `requirements.txt` includes the backend dependencies. Large model weights and local-only files are not required for the documented demo mode; add any private credentials through Streamlit secrets rather than committing `.env`.
 
 Useful frontend commands:
 

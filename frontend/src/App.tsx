@@ -26,6 +26,11 @@ import {
   analyzeDemo,
   uploadImage,
 } from "./api";
+import Aurora from "./bits/Aurora";
+import ClickSpark from "./bits/ClickSpark";
+import GradientText from "./bits/GradientText";
+import ShinyText from "./bits/ShinyText";
+import StarBorder from "./bits/StarBorder";
 import {
   ScanSearch,
   Satellite,
@@ -500,6 +505,7 @@ export default function App() {
 
   return (
     <div className="app">
+      <ClickSpark sparkColor="#7dd3fc" sparkSize={11} sparkRadius={17} sparkCount={9} duration={500}>
       <div className="aurora" aria-hidden="true" />
       <div className="aurora-grid" aria-hidden="true" />
       <nav className="navbar">
@@ -537,9 +543,38 @@ export default function App() {
       </nav>
 
       <div className="container">
-        <header className="hero">
-          <div className="hero-kicker"><span className="live-dot" /> OPERATIONS DATA DESK</div>
-          <h1>Cyclone Intelligence Dashboard</h1>
+        <header className="hero hero-stage">
+          <div className="hero-aurora" aria-hidden="true">
+            <Aurora
+              colorStops={["#38bdf8", "#818cf8", "#22d3ee"]}
+              amplitude={0.9}
+              blend={0.6}
+              speed={0.8}
+            />
+          </div>
+          <div className="hero-kicker">
+            <span className="live-dot" />
+            <StarBorder
+              as="span"
+              color="#fbbf24"
+              speed="5s"
+              thickness={1}
+              backgroundColor="transparent"
+              textColor="#fbbf24"
+              borderColor="rgba(251, 191, 36, 0.4)"
+              className="kicker-star"
+            >
+              OPERATIONS DATA DESK
+            </StarBorder>
+          </div>
+          <h1 className="hero-title">
+            <GradientText
+              colors={["#7dd3fc", "#a5b4fc", "#38bdf8", "#c4b5fd"]}
+              animationSpeed={6}
+            >
+              Cyclone Intelligence Dashboard
+            </GradientText>
+          </h1>
           <p>
             Upload a satellite image or pick a bundled storm sample — the
             pipeline segments the storm, classifies its intensity, calibrates
@@ -548,7 +583,15 @@ export default function App() {
           </p>
         </header>
         <section className="dashboard-strip" aria-label="Dataset status">
-          <div className="strip-title"><Database size={17} /> Dataset control room</div>
+          <div className="strip-title">
+            <Database size={17} />{" "}
+            <ShinyText
+              text="Dataset control room"
+              speed={5}
+              color="#fef3c7"
+              shineColor="#ffffff"
+            />
+          </div>
           <div className="strip-items">
             <span className="dataset-state">Samples: {samples.length}</span>
             <span className="dataset-state">Reference events: {refData?.dataset.length ?? 0}</span>
@@ -657,15 +700,26 @@ export default function App() {
                   </div>
                 ))}
 
-                <div className="upload-area" onClick={handleUploadClick}>
-                  <UploadCloud
-                    size={28}
-                    style={{ marginBottom: 8, color: "#38bdf8" }}
-                  />
-                  <div style={{ fontSize: "0.9rem", color: "#94a3b8" }}>
-                    Click to upload satellite image
+                <StarBorder
+                  as="div"
+                  color="#38bdf8"
+                  speed="6s"
+                  thickness={1}
+                  backgroundColor="rgba(9, 20, 40, 0.55)"
+                  textColor="#e2e8f0"
+                  borderColor="rgba(56, 189, 248, 0.35)"
+                  className="upload-star"
+                >
+                  <div className="upload-area" onClick={handleUploadClick}>
+                    <UploadCloud
+                      size={28}
+                      style={{ marginBottom: 8, color: "#38bdf8" }}
+                    />
+                    <div style={{ fontSize: "0.9rem", color: "#94a3b8" }}>
+                      Click to upload satellite image
+                    </div>
                   </div>
-                </div>
+                </StarBorder>
                 <input
                   ref={fileInputRef}
                   type="file"
@@ -756,6 +810,7 @@ export default function App() {
           <SourcesPanel sources={sources} fetchedAt={datasetsFetchedAt} />
         )}
       </div>
+      </ClickSpark>
     </div>
   );
 }

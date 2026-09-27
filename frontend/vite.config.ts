@@ -8,12 +8,12 @@ import react from "@vitejs/plugin-react";
 // "could not fetch datasets" for all panels.
 const backendProxy: Record<string, ProxyOptions> = {
   "/api": {
-    target: "http://127.0.0.1:8000",
+    target: "http://127.0.0.1:8080",
     changeOrigin: true,
   },
   // Demo/sample imagery is served by the backend as static files.
   "/data": {
-    target: "http://127.0.0.1:8000",
+    target: "http://127.0.0.1:8080",
     changeOrigin: true,
   },
 };

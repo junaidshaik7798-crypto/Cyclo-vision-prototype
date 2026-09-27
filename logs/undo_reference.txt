@@ -99,3 +99,84 @@ SERVICES IN THIS SESSION
    and another project 'CYCLONE SHAAN\cyclovision' on 127.0.0.1:5173). 127.0.0.1
    requests win the more-specific bind, so use 4173/5500 above for this repo.
 
+===================================================================
+2026-09-27 (c) — UI POLISH PASS (look & effects only, CSS-only)
+===================================================================
+WHAT CHANGED (no markup/logic changes; pure CSS)
+   frontend/src/styles.css            — nebula backdrop, animated navbar seam,
+                                        logo/hero sheen, glass cards with light
+                                        rails + corner glow, glowing metric/stat
+                                        values, tab sheen + underline, button
+                                        lift/press, breathing dashed upload zone,
+                                        glass sticky table headers, shimmer load
+                                        states, risk-card light sweep, map legend
+                                        glass, focus-visible + ::selection.
+   frontend/standalone/app.css        — same treatment for the standalone pages
+                                        (cards, icon chips, metrics, buttons,
+                                        drop zone, samples, tabs, tables, map,
+                                        footer seam, scrollbar), plus gradient
+                                        verdict text.
+
+   UNDO (only these two files):
+      git checkout -- frontend/src/styles.css frontend/standalone/app.css
+   Rebuild the React bundle afterwards:  cd frontend && npm run build
+
+VERIFIED
+   - vite production build OK (CSS bundle 41.6 kB, keyframes present)
+   - standalone app.css served on :5500 (braces balanced, polish present)
+   - both stylesheets respect prefers-reduced-motion (existing override)
+
+PARALLEL CHANGES (outside this session, NOT in the undo list above)
+   - Commit 02c5f74 "Update prototype" captured the earlier map/evacuation work.
+   - Added by another session: .streamlit/config.toml, streamlit_app.py,
+     backend/main.py, requirements.txt (Streamlit Cloud entrypoint) and edits to
+     backend/ml/model.py + frontend/vite.config.ts (proxy target now :8080).
+
+SERVICES NOW RUNNING
+   :8000 backend (standalone page default)          PID 37864
+   :8080 backend (React dev/preview proxy target)   PID 39288
+   :4173 vite preview  -> proxies /api to :8080     PID 27500
+   :5500 standalone pages -> calls :8000 directly   PID 16824
+
+===================================================================
+2026-09-27 (d) - REACT BITS MOTION INTEGRATION
+===================================================================
+WHAT CHANGED (new deps + new component files + wiring)
+   NEW deps (frontend/package.json):  ogl ^1.0.11,  motion ^13.4.4
+   frontend/src/bits/                 - React Bits ports (MIT, TS-converted):
+      Aurora.tsx / Aurora.css          - WebGL aurora backdrop (needs ogl)
+      StarBorder.tsx / StarBorder.css  - animated gradient border wrapper
+      ShinyText.tsx / ShinyText.css    - shine sweep text (needs motion)
+      GradientText.tsx / GradientText.css - animated gradient text (motion)
+      ClickSpark.tsx                   - canvas spark burst on click
+   frontend/src/App.tsx        - ClickSpark wraps the whole dashboard; hero is
+                                now a .hero-stage hosting <Aurora>, the h1
+                                headline uses <GradientText>, the kicker chip
+                                and the upload zone are wrapped in
+                                <StarBorder>, "Dataset control room" uses
+                                <ShinyText>.
+   frontend/src/styles.css     - appended "React Bits integration" section
+                                (.hero-stage/.hero-aurora/.hero-title/
+                                .kicker-star/.upload-star overrides).
+   README.md                   - one feature bullet for the motion effects.
+
+   UNDO (restore 4 files, delete 1 folder, drop 2 deps):
+      git checkout -- frontend/src/App.tsx frontend/src/styles.css frontend/package.json frontend/package-lock.json README.md
+      Remove-Item -Recurse frontend\src\bits
+      cd frontend && npm install && npm run build
+
+VERIFIED
+   - npm run build (tsc -b + vite) OK: 2100 modules, JS 533 kB (gzip 165 kB),
+     CSS 44 kB; no TypeScript errors.
+   - dist/assets greps: uColorStops (Aurora shader), star-border-container,
+     shiny-text, animated-gradient-text, hero-aurora in JS; star-movement-
+     bottom, hero-stage, kicker-star, upload-star in CSS.
+   - :4173 preview serves the new bundle (index-DRLw_v1t.js, HTTP 200).
+
+NOTES
+   - Components adapted from https://github.com/DavidHDev/react-bits (MIT).
+   - Aurora renders inside the hero only (canvas ~ container size); the old
+     CSS .aurora page backdrop is untouched.
+
+
+
