@@ -16,7 +16,7 @@ from pathlib import Path
 
 from app.core.config import settings
 
-_DEMO_ROOT = Path(settings.DEMO_DATA_DIR)
+_DEMO_ROOT = settings.demo_data_dir
 
 _IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg", ".tif", ".tiff")
 

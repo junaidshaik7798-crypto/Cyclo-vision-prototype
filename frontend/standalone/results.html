@@ -4,6 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>CYCLO-VISION — Analysis Results</title>
+<link rel="stylesheet" href="vendor/leaflet/leaflet.css" />
 <link rel="stylesheet" href="app.css" />
 </head>
 <body>
@@ -62,20 +63,25 @@
     <div id="risk-factors" class="rf-grid"></div>
   </section>
 
-  <!-- ================= OUTPUT: TRACK ================= -->
+  <!-- ============ OUTPUT: LOCATION MAP + TRACK + EVACUATION ============ -->
   <section class="card full">
-    <h2><span class="ic">&#127788;</span> Forecast Track &amp; Uncertainty Cone</h2>
+    <h2><span class="ic">&#128506;</span> Where the Cyclone Is &mdash; Map &amp; Evacuation Zone</h2>
     <div class="track-wrap">
-      <div class="map" id="track-map">
-        <svg id="track-svg" viewBox="0 0 100 70" preserveAspectRatio="xMidYMid meet">
-          <g id="svg-lats"></g><g id="svg-track"></g>
-        </svg>
+      <div class="map" id="map-holder">
+        <div id="cyclone-map"></div>
+        <div class="map-legend" id="map-legend">Loading map&hellip;</div>
+        <div id="track-map" class="hidden">
+          <svg id="track-svg" viewBox="0 0 100 70" preserveAspectRatio="xMidYMid meet">
+            <g id="svg-lats"></g><g id="svg-track"></g>
+          </svg>
+        </div>
       </div>
       <table class="tbl" id="track-tbl">
         <thead><tr><th>Time</th><th>Lat</th><th>Lon</th><th>Cone (km)</th></tr></thead>
         <tbody></tbody>
       </table>
     </div>
+    <div id="evac-line" class="evac-callout hidden"></div>
   </section>
 
   <!-- ================= OUTPUT: ACCURACY / TRUST ================= -->
@@ -96,6 +102,7 @@
 
 <footer>CYCLO-VISION &middot; research prototype &middot; not for operational use</footer>
 
+<script src="vendor/leaflet/leaflet.js"></script>
 <script src="app.js"></script>
 <script>
 initResultsPage();

@@ -1,5 +1,18 @@
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Component, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
+import { control, divIcon, latLng, latLngBounds } from "leaflet";
+import type { LatLngTuple } from "leaflet";
+import {
+  Circle,
+  CircleMarker,
+  MapContainer,
+  Marker,
+  Polyline,
+  TileLayer,
+  Tooltip,
+  useMap,
+} from "react-leaflet";
 import {
   getHealth,
   getDatasetsOverview,
@@ -35,6 +48,7 @@ import type {
   DatasetAttribute,
   DatasetsOverview,
   DemoSample,
+  EvacuationZone,
   HealthStatus,
   IBTrACSDatasetResponse,
   IBTrACSSummary,
@@ -43,6 +57,8 @@ import type {
   ReferenceDatasetResponse,
   WindBand,
 } from "./types";
+
+import "leaflet/dist/leaflet.css";
 
 type TabKey = "analyze" | "live" | "reference" | "sources";
 
@@ -857,7 +873,9 @@ function ResultPanel({
         </div>
       )}
 
-      <TrackMap points={result.track} />
+      <MapErrorBoundary fallback={<TrackMap points={result.track} />}>
+        <CycloneMapSection result={result} />
+      </MapErrorBoundary>
 
       {heatmapDataUrl && (
         <div className="mt-16">
@@ -957,6 +975,189 @@ function TrackMap({
       </svg>
     </div>
   );
+}
+
+/** Degrees of latitude/longitude spanned by a km radius at a latitude. */
+function halfSpanDeg(km: number, lat: number): { dLat: number; dLon: number } {
+  const dLat = km / 111.0;
+  const dLon = km / Math.max(111.0 * Math.cos((lat * Math.PI) / 180), 1);
+  return { dLat, dLon };
+}
+
+/**
+ * Storm marker rendered as pure HTML (no marker-image assets), so bundled and
+ * offline pages can never end up with the classic broken-icon 404.
+ */
+const stormDivIcon = divIcon({
+  className: "cyclone-div-icon",
+  html: '<span class="cyclone-pulse"></span>',
+  iconSize: [26, 26],
+  iconAnchor: [13, 13],
+});
+
+/**
+ * Imperative Leaflet bits with no declarative equivalent: framing the storm
+ * (centre + evacuation zone + track) and the metric scale bar.
+ */
+function CycloneMapEffects({ result }: { result: AnalysisResult }) {
+  const map = useMap();
+  const { lat, lon } = result.center;
+
+  useEffect(() => {
+    const radiusKm = Math.max(result.evacuation?.radius_km ?? 0, 75);
+    const span = halfSpanDeg(radiusKm, lat);
+    const bounds = latLngBounds([latLng(lat, lon)]);
+    result.track.forEach((p) => bounds.extend(latLng(p.lat, p.lon)));
+    bounds.extend(latLng(lat + span.dLat, lon + span.dLon));
+    bounds.extend(latLng(lat - span.dLat, lon - span.dLon));
+    map.fitBounds(bounds.pad(0.1), { maxZoom: 7 });
+  }, [map, lat, lon, result]);
+
+  useEffect(() => {
+    const scale = control.scale({
+      metric: true,
+      imperial: false,
+      position: "bottomleft",
+    });
+    scale.addTo(map);
+    return () => {
+      map.removeControl(scale);
+    };
+  }, [map]);
+
+  return null;
+}
+
+/**
+ * Real geographic map of the analysed storm: OpenStreetMap basemap, cyclone
+ * centre, forecast track, per-point uncertainty cones and the recommended
+ * evacuation zone drawn as an area around the storm centre.
+ */
+function CycloneMapSection({ result }: { result: AnalysisResult }) {
+  const { lat, lon } = result.center;
+  const evac: EvacuationZone | null = result.evacuation ?? null;
+  const trackPositions: LatLngTuple[] = result.track.map((p) => [p.lat, p.lon]);
+
+  return (
+    <div className="mt-16">
+      <h3 style={{ marginBottom: 8 }}>
+        Where the Cyclone Is — Location &amp; Evacuation Map
+      </h3>
+      <div className="cyclone-map-wrap">
+        <MapContainer center={[lat, lon]} zoom={6} scrollWheelZoom className="cyclone-map">
+          <TileLayer
+            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+          />
+          {evac && evac.radius_km > 0 && (
+            <Circle
+              center={[lat, lon]}
+              radius={evac.radius_km * 1000}
+              pathOptions={{
+                color: "#f87171",
+                weight: 2,
+                dashArray: "8 6",
+                fillColor: "#f87171",
+                fillOpacity: 0.15,
+              }}
+            >
+              <Tooltip sticky>
+                Evacuation zone — {evac.radius_km.toFixed(0)} km radius around the
+                storm centre ({evac.risk_level})
+              </Tooltip>
+            </Circle>
+          )}
+          {result.track.map((p, i) =>
+            p.cone_km > 0 ? (
+              <Circle
+                key={`cone-${i}`}
+                center={[p.lat, p.lon]}
+                radius={p.cone_km * 1000}
+                pathOptions={{
+                  color: "#38bdf8",
+                  weight: 1,
+                  dashArray: "2 5",
+                  fillColor: "#38bdf8",
+                  fillOpacity: 0.05,
+                }}
+              >
+                <Tooltip>
+                  {p.label} uncertainty — ±{p.cone_km} km
+                </Tooltip>
+              </Circle>
+            ) : null
+          )}
+          {trackPositions.length > 1 && (
+            <Polyline
+              positions={trackPositions}
+              pathOptions={{ color: "#38bdf8", weight: 3, dashArray: "6 5" }}
+            />
+          )}
+          {result.track.map((p, i) => (
+            <CircleMarker
+              key={`pt-${i}`}
+              center={[p.lat, p.lon]}
+              radius={i === 0 ? 7 : 5}
+              pathOptions={{
+                color: "#e0f2fe",
+                weight: 1.5,
+                fillColor: i === 0 ? "#f87171" : "#38bdf8",
+                fillOpacity: 0.9,
+              }}
+            >
+              <Tooltip>
+                {p.label}: {p.lat.toFixed(2)}, {p.lon.toFixed(2)} (cone {p.cone_km} km)
+              </Tooltip>
+            </CircleMarker>
+          ))}
+          <Marker position={[lat, lon]} icon={stormDivIcon}>
+            <Tooltip permanent direction="top" offset={[0, -14]}>
+              Cyclone centre · {lat.toFixed(2)}°N {lon.toFixed(2)}°E
+            </Tooltip>
+          </Marker>
+          <CycloneMapEffects result={result} />
+        </MapContainer>
+        <div className="map-legend">
+          <span><i className="lg lg-storm" /> Cyclone centre</span>
+          <span><i className="lg lg-track" /> Forecast track (+6h → +48h)</span>
+          <span><i className="lg lg-cone" /> Uncertainty cone</span>
+          {evac && (
+            <span>
+              <i className="lg lg-evac" /> Evacuation zone ({evac.radius_km.toFixed(0)} km)
+            </span>
+          )}
+        </div>
+      </div>
+      {evac && (
+        <div className="evac-callout">
+          <b>Evacuation:</b> {evac.action}{" "}
+          <span className="muted">
+            Zone radius {evac.radius_km.toFixed(0)} km around the storm centre —{" "}
+            {evac.note}
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Falls back to the schematic SVG track map if the interactive map throws
+ * (a panel never blanks out in this dashboard).
+ */
+class MapErrorBoundary extends Component<
+  { fallback: ReactNode; children: ReactNode },
+  { failed: boolean }
+> {
+  state = { failed: false };
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  render() {
+    return this.state.failed ? this.props.fallback : this.props.children;
+  }
 }
 
 function LivePanel({

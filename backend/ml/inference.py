@@ -51,12 +51,12 @@ def _model_dir() -> str:
 
 
 def _demo_data_dir() -> str:
-    return str(settings.DEMO_DATA_DIR)
+    return str(settings.demo_data_dir)
 
 
 # Back-compat aliases for existing imports.
 MODEL_DIR = settings.MODEL_DIR
-DEMO_DATA_DIR = settings.DEMO_DATA_DIR
+DEMO_DATA_DIR = settings.demo_data_dir
 
 logger = logging.getLogger("cyclo.inference")
 
@@ -465,6 +465,9 @@ def run_inference(
         "intensity_category": post.intensity_category(wind),
         "risk_level": risk_level,
         "risk_factors": factors,
+        # Evacuation-zone block for the analysis map: radius scales with the
+        # wind band, action text mirrors the risk tier.
+        "evacuation": post.evacuation_zone(wind, risk_level),
         "inference_mode": mode,
         "calibration_source": calibration_source,
         "reference_cyclone": (

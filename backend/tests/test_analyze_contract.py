@@ -55,6 +55,30 @@ def test_analyze_returns_analysis_id(client: TestClient):
         assert key in body, key
 
 
+def test_analyze_returns_evacuation_zone(client: TestClient):
+    """The analysis payload must carry the evacuation-zone block the map draws.
+
+    The map shows the storm centre, the forecast track and a scaled evacuation
+    zone around the cyclone; the zone radius/action come from this block, so
+    the contract has to be locked down like the other P0-1 fields.
+    """
+    resp = client.post(
+        "/api/analyze",
+        files={"file": ("evac.PNG", _png(), "image/png")},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+
+    assert "evacuation" in body, body.keys()
+    evac = body["evacuation"]
+    assert evac is not None, "evacuation zone block missing"
+    assert isinstance(evac["radius_km"], (int, float)) and evac["radius_km"] > 0
+    # The drawn zone must never contradict the reported risk tier.
+    assert evac["risk_level"] == body["risk_level"]
+    assert evac["action"], "evacuation action text missing"
+    assert evac["note"], "evacuation note missing"
+
+
 def test_analyze_demo_returns_demo_sample(client: TestClient):
     """The demo endpoint must also echo the sample metadata (P0-1)."""
     resp = client.post("/api/analyze/demo", json={})

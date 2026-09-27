@@ -42,6 +42,15 @@ class RiskFactor(BaseModel):
     impact: str
 
 
+class EvacuationZone(BaseModel):
+    """Danger/evacuation zone drawn around the storm centre on the map."""
+
+    radius_km: float
+    risk_level: str = "LOW"
+    action: str = ""
+    note: str = ""
+
+
 # ---------------------------------------------------------------------------
 # Analysis response
 # ---------------------------------------------------------------------------
@@ -63,6 +72,7 @@ class AnalysisResult(BaseModel):
     reference_year: Optional[int] = None
     explainability: Explainability
     track: list[TrackPoint] = []
+    evacuation: Optional[EvacuationZone] = None
     center: dict[str, float]
 
     # --- P0-1: pass-through fields the frontend needs ---------------------

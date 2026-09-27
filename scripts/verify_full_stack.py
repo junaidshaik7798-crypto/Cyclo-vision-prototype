@@ -185,6 +185,9 @@ def main() -> int:
                 ),
                 "track": bool(strong.get("track")),
                 "center": bool(strong.get("center")),
+                # Map contract: the analysis map draws the evacuation zone
+                # around the storm centre from this block.
+                "evacuation": bool(strong.get("evacuation")),
                 "calibration_source": bool(strong.get("calibration_source")),
             }.items():
                 print(f"         payload {k:<20} {'present' if ok else 'MISSING'}")

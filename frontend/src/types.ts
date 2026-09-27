@@ -41,6 +41,14 @@ export interface RiskFactor {
   impact: string;
 }
 
+/** Danger/evacuation zone drawn around the storm centre on the analysis map. */
+export interface EvacuationZone {
+  radius_km: number;
+  risk_level: string;
+  action: string;
+  note: string;
+}
+
 export interface Explainability {
   type: string;
   note: string;
@@ -64,6 +72,7 @@ export interface AnalysisResult {
   reference_year?: number | null;
   explainability: Explainability;
   track: TrackPoint[];
+  evacuation?: EvacuationZone | null;
   center: { lat: number; lon: number };
   source?: string;
   image_name?: string;

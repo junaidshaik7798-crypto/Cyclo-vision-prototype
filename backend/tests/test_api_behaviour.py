@@ -183,9 +183,8 @@ def test_best_match_prefers_storm_with_pressure_record():
 def _demo_png_path() -> str:
     """Absolute path to a bundled demo PNG (skips if absent)."""
     from app.core.config import settings
-    from pathlib import Path
 
-    root = Path(settings.DEMO_DATA_DIR)
+    root = settings.demo_data_dir
     candidates = sorted(root.glob("*.png"))
     if not candidates:
         pytest.skip("no bundled demo PNG available")

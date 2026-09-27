@@ -301,8 +301,8 @@ function initResultsPage() {
     rf.appendChild(d);
   });
 
-  /* ----- track map + table ----- */
-  drawTrack(r.track || []);
+  /* ----- location map + track table ----- */
+  renderLocationMap(r);
   const tb = $("#track-tbl tbody");
   tb.innerHTML = "";
   (r.track || []).forEach((p) => {
@@ -316,6 +316,135 @@ function initResultsPage() {
   $("#a-conf").textContent = `${Math.round((r.confidence || 0) * 100)}%`;
   $("#a-band").textContent = "10-13 kt RMSE (published IR floor)";
   $("#a-cal").textContent = r.calibration_source || "class climatology";
+}
+
+/* ---------------- evacuation zone ---------------- */
+/* Client-side fallback mirroring ml.postprocessing.EVACUATION_RADII_KM,
+   used only when the backend payload predates the evacuation block. */
+const EVAC_FALLBACK_BANDS = [
+  [120, 150], [90, 120], [64, 90], [48, 70], [34, 50], [28, 40], [17, 30], [0, 20],
+];
+
+function evacuationFor(r) {
+  if (r.evacuation && r.evacuation.radius_km) return r.evacuation;
+  const wind = Number(r.estimated_wind_speed_knots) || 0;
+  const band = EVAC_FALLBACK_BANDS.find((b) => wind >= b[0]) ||
+    EVAC_FALLBACK_BANDS[EVAC_FALLBACK_BANDS.length - 1];
+  return {
+    radius_km: band[1],
+    risk_level: r.risk_level || "LOW",
+    action: "Follow local authority instructions.",
+    note: "Prototype guidance, not an official warning.",
+  };
+}
+
+/* ---------------- real location map (Leaflet, vendored) ----------------
+   Shows where the cyclone is (centre marker), the forecast track with its
+   uncertainty cones, and the evacuation zone drawn as an AREA around the
+   storm centre. Falls back to the schematic SVG map when Leaflet is not
+   available (e.g. the page is opened with the script blocked). */
+function renderLocationMap(r) {
+  const evac = evacuationFor(r);
+  const evacLine = $("#evac-line");
+  if (evacLine) {
+    evacLine.innerHTML =
+      `<b>Evacuation zone:</b> ${esc(evac.action)} ` +
+      `<span class="muted">Radius ${esc(evac.radius_km)} km around the storm centre ` +
+      `(risk: ${esc(evac.risk_level)}) &mdash; ${esc(evac.note)}</span>`;
+    evacLine.classList.remove("hidden");
+  }
+
+  const mapEl = document.getElementById("cyclone-map");
+  const legend = document.getElementById("map-legend");
+  const points = r.track || [];
+  const center = r.center || points[0] || null;
+
+  if (!window.L || !mapEl || !center) {
+    /* Offline or legacy browser: fall back to the schematic SVG track map. */
+    if (mapEl) mapEl.classList.add("hidden");
+    const fb = document.getElementById("track-map");
+    if (fb) fb.classList.remove("hidden");
+    drawTrack(points);
+    if (legend) {
+      legend.textContent = points.length
+        ? `white = current - blue = forecast (+6h..+48h) - dashed circle = ${points[0].cone_km} km uncertainty cone`
+        : "No track available.";
+    }
+    return;
+  }
+
+  const map = L.map(mapEl, { scrollWheelZoom: true });
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 19,
+    attribution: "&copy; OpenStreetMap contributors",
+  }).addTo(map);
+  L.control.scale({ metric: true, imperial: false, position: "bottomleft" }).addTo(map);
+
+  /* Evacuation zone: the danger area around the current storm centre. */
+  L.circle([center.lat, center.lon], {
+    radius: evac.radius_km * 1000,
+    color: "#f87171", weight: 2, dashArray: "8 6",
+    fillColor: "#f87171", fillOpacity: 0.15,
+  }).addTo(map).bindTooltip(
+    `Evacuation zone &mdash; ${esc(evac.radius_km)} km radius (${esc(evac.risk_level)})`,
+    { sticky: true }
+  );
+
+  /* Uncertainty cones around each forecast point. */
+  points.forEach((p) => {
+    if (p.cone_km > 0) {
+      L.circle([p.lat, p.lon], {
+        radius: p.cone_km * 1000,
+        color: "#38bdf8", weight: 1, dashArray: "2 5",
+        fillColor: "#38bdf8", fillOpacity: 0.05,
+      }).addTo(map).bindTooltip(`${esc(p.label)} uncertainty &mdash; &plusmn;${p.cone_km} km`);
+    }
+  });
+
+  if (points.length > 1) {
+    L.polyline(points.map((p) => [p.lat, p.lon]), {
+      color: "#38bdf8", weight: 3, dashArray: "6 5",
+    }).addTo(map);
+  }
+
+  points.forEach((p, i) => {
+    L.circleMarker([p.lat, p.lon], {
+      radius: i === 0 ? 7 : 5,
+      color: "#e0f2fe", weight: 1.5,
+      fillColor: i === 0 ? "#f87171" : "#38bdf8", fillOpacity: 0.9,
+    }).addTo(map).bindTooltip(
+      `${esc(p.label)}: ${p.lat.toFixed(2)}, ${p.lon.toFixed(2)} (cone ${p.cone_km} km)`
+    );
+  });
+
+  /* Storm centre: pulsing HTML marker (no marker-image assets needed). */
+  const stormIcon = L.divIcon({
+    className: "cyclone-div-icon",
+    html: '<span class="cyclone-pulse"></span>',
+    iconSize: [26, 26],
+    iconAnchor: [13, 13],
+  });
+  L.marker([center.lat, center.lon], { icon: stormIcon }).addTo(map).bindTooltip(
+    `Cyclone centre &middot; ${center.lat.toFixed(2)}&deg;N ${center.lon.toFixed(2)}&deg;E`,
+    { permanent: true, direction: "top", offset: [0, -14] }
+  );
+
+  /* Frame the storm: centre + evacuation zone + track (with margin). */
+  const bounds = L.latLngBounds([[center.lat, center.lon]]);
+  points.forEach((p) => bounds.extend([p.lat, p.lon]));
+  const span = Math.max(evac.radius_km, 75) / 111;
+  bounds.extend([center.lat + span, center.lon + span]);
+  bounds.extend([center.lat - span, center.lon - span]);
+  map.fitBounds(bounds.pad(0.1), { maxZoom: 7 });
+  setTimeout(() => map.invalidateSize(), 0);
+
+  if (legend) {
+    legend.innerHTML =
+      `<span><i class="lg lg-storm"></i> Cyclone centre</span>` +
+      `<span><i class="lg lg-track"></i> Forecast track (+6h..+48h)</span>` +
+      `<span><i class="lg lg-cone"></i> Uncertainty cone</span>` +
+      `<span><i class="lg lg-evac"></i> Evacuation zone (${esc(evac.radius_km)} km)</span>`;
+  }
 }
 
 /* ---------------- SVG track map ---------------- */

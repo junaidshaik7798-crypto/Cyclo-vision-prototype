@@ -1,0 +1,101 @@
+CYCLO-VISION — UNDO REFERENCE (created 2026-09-27)
+===================================================
+This file records everything changed during the "set API key / clear the
+issue / fetch API data" session, so every step can be reverted.
+
+1) GIT REFERENCE KEY (undo anchor)
+----------------------------------
+   Commit (HEAD, branch main): f11a5bd23a69a89d809723f953af112db3dee1bf
+   Undo ALL tracked-file changes:   git reset --hard f11a5bd23a69a89d809723f953af112db3dee1bf
+   Remove untracked helpers too:    git clean -fd  (review with: git clean -nd)
+   NOTE: no tracked file was modified; the anchor is provided for safety.
+
+2) FILES CREATED (delete to undo)
+---------------------------------
+   .env                              <- local secrets (gitignored). Delete it to
+                                        fall back to defaults (SECRET_KEY=change-me).
+   data/cache/fetch_api.py           <- API data fetcher (gitignored folder).
+   data/cache/api_fetch_latest.json  <- fetched API data, 259,906 bytes (gitignored).
+   logs/admin_fix.ps1                <- elevated fix script (delete if you don't need it).
+   logs/verify_after_fix.txt         <- full-stack verification report (ALL CHECKS PASSED).
+   logs/backend.out.before_fix.bak   <- pre-session copy of backend.out.log
+   logs/backend.err.before_fix.bak   <- pre-session copy of backend.err.log
+   logs/env_backup_machine_ca.txt    <- created BY admin_fix.ps1 when it runs (env backup).
+
+3) GENERATED KEY (SECRET_KEY in .env)
+-------------------------------------
+   The app signing key generated this session:
+     726f28f9fafcbfe1ecea71b4d200d631a2dc8b296d01ef03ba17e07a0adf2155
+   To undo: delete .env (or replace SECRET_KEY with your old value).
+   NASA_EARTHDATA_TOKEN was left blank — supply your own personal token from
+   https://urs.earthdata.nasa.gov (Profile -> Generate Token) if you integrate
+   NASA Earthdata later. This prototype does NOT need any external API key:
+   the NOAA IBTrACS download it uses is public-domain and keyless.
+
+4) ENVIRONMENT VARIABLE CHANGE (Windows, Machine scope)
+-------------------------------------------------------
+   BEFORE (stale, pointed at a missing file — caused:
+     OSError: Could not find a suitable TLS CA certificate bundle,
+     invalid path: D:\PostgreSQL17\ssl\certs\ca-bundle.crt):
+        CURL_CA_BUNDLE = D:\PostgreSQL17\ssl\certs\ca-bundle.crt
+   AFTER admin_fix.ps1 runs: variable removed from Machine scope.
+   To UNDO (elevated PowerShell):
+        [Environment]::SetEnvironmentVariable('CURL_CA_BUNDLE','D:\PostgreSQL17\ssl\certs\ca-bundle.crt','Machine')
+   Only the stale variable is touched; no other system setting is changed.
+
+5) WINDOWS SERVICE STATE
+------------------------
+   postgresql-x64-18 was STOPPED before this session (do not change to undo).
+   To undo a start performed by admin_fix.ps1 (elevated PowerShell):
+        Stop-Service postgresql-x64-18
+
+6) EVIDENCE COMMANDS (re-run any time)
+--------------------------------------
+   Get-Service postgresql-x64-18
+   curl.exe -s http://127.0.0.1:8000/api/health
+   python data/cache/fetch_api.py
+   python scripts/verify_full_stack.py
+
+===================================================================
+2026-09-27 (b) — CYCLONE LOCATION + EVACUATION MAP FEATURE
+===================================================================
+WHAT CHANGED
+   A real OpenStreetMap/Leaflet map now shows where the cyclone is (storm
+   centre, forecast track, uncertainty cones) and the recommended evacuation
+   zone drawn as an area around the centre, in BOTH the React dashboard
+   (Analysis Result panel) and the standalone results page. The API gained an
+   "evacuation" block (radius_km/risk_level/action/note).
+
+MODIFIED TRACKED FILES (undo = git checkout -- <file>)
+   backend/ml/postprocessing.py            (evacuation zone mapping)
+   backend/ml/inference.py                 (passes "evacuation" through)
+   backend/app/schemas/__init__.py         (EvacuationZone model)
+   backend/app/core/config.py              (relative .env paths resolved vs repo root)
+   backend/app/services/demo_data.py       (uses settings.demo_data_dir)
+   backend/tests/test_analyze_contract.py  (new evacuation contract test)
+   backend/tests/test_api_behaviour.py     (demo path via settings)
+   scripts/verify_full_stack.py            (payload evacuation check)
+   frontend/src/App.tsx                    (CycloneMapSection + react-leaflet)
+   frontend/src/types.ts                   (EvacuationZone type)
+   frontend/src/styles.css                 (map/legend/callout styles)
+   frontend/standalone/results.html        (map section + vendored Leaflet)
+   frontend/standalone/app.js              (renderLocationMap + fallback)
+   frontend/standalone/app.css             (map styles)
+   README.md                               (feature + standalone docs)
+
+   FULL UNDO (all of the above):
+      git checkout -- backend scripts frontend/src frontend/standalone/results.html frontend/standalone/app.js frontend/standalone/app.css README.md
+
+NEW UNTRACKED FILES (delete to undo)
+   frontend/standalone/vendor/leaflet/     (vendored Leaflet 1.9.4 for offline use)
+   logs/verify_map.txt                     (verification report)
+   logs/pytest_*.txt, logs/preview.out.txt, logs/standalone.*.log
+
+SERVICES IN THIS SESSION
+   Backend API        : PID 37864  -> http://127.0.0.1:8000
+   Standalone (this)  : PID 16824  -> http://127.0.0.1:5500  (frontend/standalone)
+   React preview      : see logs/preview.out.txt -> http://127.0.0.1:4173
+   NOTE: port 5173 is held by TWO Vite dev servers (this repo on 0.0.0.0:5173,
+   and another project 'CYCLONE SHAAN\cyclovision' on 127.0.0.1:5173). 127.0.0.1
+   requests win the more-specific bind, so use 4173/5500 above for this repo.
+

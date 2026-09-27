@@ -109,6 +109,64 @@ def assess_risk(
 
 
 # ---------------------------------------------------------------------------
+# Evacuation zone (prototype mapping)
+# ---------------------------------------------------------------------------
+
+# Recommended evacuation-zone radius around the storm centre, per IMD wind
+# band. Thresholds mirror ml.classification.WIND_BANDS so the drawn zone can
+# never contradict the displayed category. The radii approximate the
+# documented destructive-wind / surge footprint of each band; they are
+# prototype guidance, not an official evacuation order.
+EVACUATION_RADII_KM: tuple[tuple[float, float], ...] = (
+    (120.0, 150.0),  # Super Cyclonic Storm
+    (90.0, 120.0),   # Extremely Severe Cyclonic Storm
+    (64.0, 90.0),    # Very Severe Cyclonic Storm
+    (48.0, 70.0),    # Severe Cyclonic Storm
+    (34.0, 50.0),    # Cyclonic Storm
+    (28.0, 40.0),    # Deep Depression
+    (17.0, 30.0),    # Depression
+    (0.0, 20.0),     # No cyclone / below depression
+)
+
+# Advice text per risk tier. Keys match RISK_THRESHOLDS / assess_risk output,
+# so the map legend, the verdict panel and this text cannot disagree.
+EVACUATION_ACTIONS: dict[str, str] = {
+    "EXTREME": "Mandatory evacuation: move people out of the marked zone before landfall.",
+    "HIGH": "Evacuation advised for exposed coastal and low-lying areas inside the marked zone.",
+    "MODERATE": "Prepare to evacuate: keep documents and vehicles ready, follow local authority instructions.",
+    "LOW": "No evacuation required: keep monitoring the storm and official bulletins.",
+}
+
+
+def evacuation_radius_km(wind_knots: float) -> float:
+    """Recommended evacuation-zone radius (km) for a 1-minute wind speed."""
+    for band_min, radius in EVACUATION_RADII_KM:
+        if wind_knots >= band_min:
+            return radius
+    return EVACUATION_RADII_KM[-1][1]
+
+
+def evacuation_zone(wind_knots: float, risk_level: str) -> dict[str, Any]:
+    """Prototype evacuation guidance for the analysed storm.
+
+    ``radius_km`` is the danger-zone radius drawn around the reported storm
+    centre on the analysis map; ``risk_level`` mirrors the analysis risk tier.
+    """
+    level = (risk_level or "LOW").upper()
+    return {
+        "radius_km": evacuation_radius_km(wind_knots),
+        "risk_level": level,
+        "action": EVACUATION_ACTIONS.get(level, EVACUATION_ACTIONS["LOW"]),
+        "note": (
+            "Prototype guidance: a circular evacuation zone around the "
+            "estimated storm centre, scaled by intensity. Real evacuation "
+            "zones follow the coastline, terrain, surge forecast and local "
+            "authority orders -- not a circle."
+        ),
+    }
+
+
+# ---------------------------------------------------------------------------
 # Deterministic pseudo-random track generator (prototype)
 # ---------------------------------------------------------------------------
 

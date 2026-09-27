@@ -1,0 +1,16 @@
+INFO:     127.0.0.1:64137 - "GET /api/ibtracs/status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64137 - "GET /api/ibtracs/status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64137 - "GET /api/ibtracs/status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64137 - "GET /api/ibtracs/status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54666 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50431 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50437 - "GET /api/data-sources HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50439 - "GET /api/reference-dataset HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50441 - "GET /api/reference-dataset/summary HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50443 - "GET /api/ibtracs/status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50445 - "GET /api/ibtracs/recent?limit=5 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50447 - "GET /api/analyze/samples HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50449 - "GET /data/demo/sample_severe.png HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50452 - "POST /api/analyze/demo/sample_vsevere HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51224 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59803 - "GET /api/health HTTP/1.1" 200 OK

@@ -1,0 +1,16 @@
+INFO:     Started server process [24308]
+INFO:     Waiting for application startup.
+ERROR:cyclo.database:Database init failed: (psycopg2.OperationalError) connection to server at "localhost" (::1), port 5432 failed: Connection refused (0x0000274D/10061)
+	Is the server running on that host and accepting TCP/IP connections?
+connection to server at "localhost" (127.0.0.1), port 5432 failed: Connection refused (0x0000274D/10061)
+	Is the server running on that host and accepting TCP/IP connections?
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+WARNING:cyclo.main:Database unavailable at startup -- running with in-memory/error fallbacks. Run PostgreSQL and set DATABASE_URL to enable history.
+INFO:cyclo.main:IBTrACS live dataset warm-up started.
+INFO:     Application startup complete.
+INFO:cyclo.ibtracs:IBTrACS cache is fresh; skipping download.
+INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+INFO:cyclo.ibtracs:Loaded 342 storms from IBTrACS (cache).
+INFO:cyclo.main:IBTrACS warm-up done: 342 storms (source=cache).
+WARNING:cyclo.analysis:Skipping persist: DB unavailable.

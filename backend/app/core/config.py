@@ -78,8 +78,27 @@ class Settings(BaseSettings):
         return {e.strip().lower() for e in self.ALLOWED_EXTENSIONS.split(",") if e}
 
     @property
+    def demo_data_dir(self) -> Path:
+        """``DEMO_DATA_DIR`` as an absolute path.
+
+        Values from ``.env`` are often relative (``data/demo``); they are
+        resolved against the repository root so the setting means the same
+        thing whether the process was started from ``backend/`` (the API) or
+        from the repository root (scripts) -- a relative path used to resolve
+        against the CWD, which silently emptied the demo-sample list.
+        """
+        p = Path(self.DEMO_DATA_DIR)
+        return p if p.is_absolute() else PROJECT_ROOT / p
+
+    @property
+    def model_path(self) -> Path:
+        """``MODEL_PATH`` as an absolute path (same CWD-independent rule)."""
+        p = Path(self.MODEL_PATH)
+        return p if p.is_absolute() else PROJECT_ROOT / p
+
+    @property
     def model_dir(self) -> Path:
-        p = Path(self.MODEL_PATH).parent
+        p = self.model_path.parent
         p.mkdir(parents=True, exist_ok=True)
         return p
 

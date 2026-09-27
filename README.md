@@ -14,6 +14,10 @@ AI-powered tropical cyclone intelligence from satellite imagery. CYCLO-VISION ac
 - Confidence score, risk level, and risk factors.
 - Explainability heatmap overlay for the analyzed image.
 - Forecast track points from +6 h to +48 h with an uncertainty cone.
+- Interactive OpenStreetMap (Leaflet) view of where the storm is, with the forecast
+  track, uncertainty cones and the recommended evacuation zone drawn as an area
+  around the storm centre (falls back to a schematic SVG map when tiles/Leaflet
+  are unavailable).
 - Historical reference and calibration information from IBTrACS/reference data.
 - Health, data-source, live IBTrACS, and reference-dataset views.
 - Optional PostgreSQL persistence for analysis history.
@@ -98,7 +102,7 @@ With the backend running, open a second terminal from the repository root:
 python -m http.server 5173 --directory frontend/standalone
 ```
 
-Open http://127.0.0.1:5173. Select a bundled sample or upload an image, optionally enter `latitude, longitude`, and choose **Run Cyclone Analysis**. The analysis opens in `results.html` and displays the analyzed image, heatmap, confidence, wind, pressure, risk, forecast track, uncertainty cone, and model details.
+Open http://127.0.0.1:5173. Select a bundled sample or upload an image, optionally enter `latitude, longitude`, and choose **Run Cyclone Analysis**. The analysis opens in `results.html` and displays the analyzed image, heatmap, confidence, wind, pressure, risk, a map of where the cyclone is (storm centre, forecast track, uncertainty cones and the evacuation zone around the centre), the track table, and model details. Leaflet is served locally from `vendor/leaflet/`, so the map container and storm shapes render even without CDN access; only the OpenStreetMap basemap tiles need the internet.
 
 The standalone page uses `http://127.0.0.1:8000` by default. The API can be overridden with either:
 

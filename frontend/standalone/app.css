@@ -199,7 +199,39 @@ input[type="range"] { accent-color: var(--cyan); }
 .cone { fill: rgba(56,189,248,.10); stroke: rgba(56,189,248,.4); stroke-dasharray: 1.5 1.5; }
 .grid-line { stroke: rgba(125,147,178,.14); stroke-width: .18; }
 .grid-lbl { fill: var(--mut); font-size: 2px; }
-.map-legend { position: absolute; left: 10px; bottom: 8px; color: var(--mut); font-size: .68rem; }
+
+/* ---- location map (Leaflet) + evacuation zone ---- */
+#cyclone-map { height: 380px; width: 100%; border-radius: 12px; background: #0b1c3a; z-index: 0; }
+.map-legend {
+  position: absolute; z-index: 1000; right: 10px; top: 10px;
+  display: flex; flex-direction: column; gap: 4px;
+  padding: 8px 10px; background: rgba(4,12,26,.82);
+  border: 1px solid var(--line); border-radius: 8px;
+  color: var(--mut); font-size: .68rem; pointer-events: none;
+}
+.map-legend span { display: flex; align-items: center; gap: 6px; }
+.map-legend .lg { width: 12px; height: 12px; border-radius: 3px; display: inline-block; flex: none; }
+.lg-storm { background: #f87171; border-radius: 50%; }
+.lg-track { background: #38bdf8; }
+.lg-cone { background: rgba(56,189,248,.25); border: 1px dashed #38bdf8; }
+.lg-evac { background: rgba(248,113,113,.18); border: 1px dashed #f87171; }
+.cyclone-div-icon { background: transparent; border: none; }
+.cyclone-pulse {
+  display: block; width: 26px; height: 26px; border-radius: 50%;
+  background: rgba(248,113,113,.65);
+  box-shadow: 0 0 0 0 rgba(248,113,113,.6);
+  animation: cyclonePulse 1.8s ease-out infinite;
+}
+@keyframes cyclonePulse {
+  70% { box-shadow: 0 0 0 18px rgba(248,113,113,0); }
+  100% { box-shadow: 0 0 0 0 rgba(248,113,113,0); }
+}
+.evac-callout {
+  margin-top: 14px; padding: 10px 14px; border-radius: 8px;
+  background: rgba(248,113,113,.08); border: 1px solid rgba(248,113,113,.3);
+  font-size: .82rem;
+}
+.evac-callout .muted { color: var(--mut); }
 
 .acc-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-top: 14px; }
 
